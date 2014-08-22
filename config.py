@@ -132,7 +132,9 @@ class configuration:
                     'src/Track.cpp',
                     'src/TrackGenerator.cpp',
                     'src/Universe.cpp',
-                    'src/Cmfd.cpp']
+                    'src/Cmfd.cpp',
+                    'src/ModularTrackGenerator.cpp',
+                    'src/ModularCPUSolver.cpp']
 
   sources['icpc'] = ['openmoc/openmoc_wrap.cpp',
                      'src/Cell.cpp',
@@ -150,7 +152,9 @@ class configuration:
                      'src/Track.cpp',
                      'src/TrackGenerator.cpp',
                      'src/Universe.cpp',
-                     'src/Cmfd.cpp']
+                     'src/Cmfd.cpp',
+                     'src/ModularTrackGenerator.cpp',
+                     'src/ModularCPUSolver.cpp']
 
   sources['bgxlc'] = ['openmoc/openmoc_wrap.cpp',
                       'src/Cell.cpp',
@@ -167,7 +171,9 @@ class configuration:
                       'src/Track.cpp',
                       'src/TrackGenerator.cpp',
                       'src/Universe.cpp',
-                      'src/Cmfd.cpp']
+                      'src/Cmfd.cpp',
+                      'src/ModularTrackGenerator.cpp',
+                      'src/ModularCPUSolver.cpp']
 
   sources['nvcc'] = ['openmoc/cuda/openmoc_cuda_wrap.cpp',
                      'src/accel/cuda/GPUQuery.cu',

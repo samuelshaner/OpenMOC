@@ -141,6 +141,32 @@ void Track::setBCOut(const bool bc_out) {
 
 
 /**
+ * @brief Sets the boundary condition for the incoming flux along the Track's
+ *        "forward" direction.
+ * @details The boolean represents vacuum (false) or reflective (true)
+ *          boundary conditions.
+ * @param bc_in boundary condition for the incoming flux in the "forward"
+ *        direction
+ */
+void Track::setOnBoundaryIn(const bool on_boundary_in) {
+  _on_boundary_in = on_boundary_in;
+}
+
+
+/**
+ * @brief Sets the boundary condition for the incoming flux along the Track's
+ *        "reverse" direction.
+ * @details The boolean represents vacuum (false) or reflective (true)
+ *          boundary conditions.
+ * @param bc_out boundary condition for the incoming flux in the "reverse"
+ *        direction
+ */
+void Track::setOnBoundaryOut(const bool on_boundary_out) {
+  _on_boundary_out = on_boundary_out;
+}
+
+
+/**
  * @brief Sets the track reflecting into this Track's "forward" direction.
  * @param track_in pointer to the Track reflecting into the "forward" direction
  */
@@ -237,6 +263,26 @@ bool Track::getBCIn() const {
  */
 bool Track::getBCOut() const {
   return _bc_out;
+}
+
+
+/**
+ * @brief Returns the boundary condition for the flux along the Track's
+ *        "forward" direction.
+ * @return vacuum (false) or reflective (true) reflective boundary conditions
+ */
+bool Track::getOnBoundaryIn() const {
+  return _on_boundary_in;
+}
+
+
+/**
+ * @brief Returns the boundary condition for the flux along the Track's
+ *        "reverse" direction.
+ * @return vacuum (false) or reflective (true) reflective boundary conditions
+ */
+bool Track::getOnBoundaryOut() const {
+  return _on_boundary_out;
 }
 
 

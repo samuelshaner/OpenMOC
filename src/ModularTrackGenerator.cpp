@@ -30,8 +30,40 @@ int ModularTrackGenerator::getNumX() {
 }
 
 
+void ModularTrackGenerator::setNumX(int cx) {
+  _cx = cx;
+}
+
+
 int ModularTrackGenerator::getNumY() {
   return _cy;
+}
+
+
+void ModularTrackGenerator::setNumY(int cy) {
+  _cy = cy;
+}
+
+
+int ModularTrackGenerator::getNumCells() {
+  return _cx*_cy;
+}
+
+
+/**
+ * @brief The structure of the Lattice to be used as the CMFD mesh.
+ * @param The number of cells in the x direction.
+ * @param The number of cells in the y direction.
+ */
+void ModularTrackGenerator::setLatticeStructure(int cx, int cy){
+  setNumX(cx);
+  setNumY(cy);
+}
+
+
+
+std::vector< std::vector< std::vector<Track*> > > ModularTrackGenerator::getModularTracks(){
+  return _modular_tracks;
 }
 
 
@@ -95,7 +127,7 @@ void ModularTrackGenerator::generateTracks() {
       recalibrateTracksToOrigin();
       decomposeTracks();
       segmentize();
-      dumpTracksToFile();
+      //dumpTracksToFile();
     }
     catch (std::exception &e) {
       log_printf(ERROR, "Unable to allocate memory needed to generate "
@@ -138,12 +170,14 @@ void ModularTrackGenerator::initializeTrackFileDirectory() {
                   << _spacing << "_cm_spacing_cmfd_"
                   << _geometry->getCmfd()->getNumX() 
                   << "x" << _geometry->getCmfd()->getNumY()
+                  << "_decomp_" << _cx << "x" << _cy
                   << ".data";
     }
   else{
     test_filename << directory.str() << "/tracks_"
                   <<  _num_azim*2.0 << "_angles_"
-                  << _spacing << "_cm_spacing.data";
+                  << _spacing << "_cm_spacing_"
+                  << "_decomp_" << _cx << "x" << _cy << ".data";
   }
 
   _tracks_filename = test_filename.str();
@@ -170,145 +204,165 @@ void ModularTrackGenerator::decomposeTracks() {
 
   log_printf(INFO, "Decomposing tracks across coarse mesh...");
 
-  /* Each element in arrays corresponds to an angle in phi_eff */
-  /* Track spacing along x,y-axes, and perpendicular to each Track */
-  double* dx_eff = new double[_num_azim];
-  double* dy_eff = new double[_num_azim];
-  double* d_eff = new double[_num_azim];
-
-  /* Effective azimuthal angles with respect to positive x-axis */
-  double* phi_eff = new double[_num_azim];
-
-  double x1, x2;
-  double iazim = _num_azim*2.0;
-  double width = _geometry->getWidth();
+  Track* old_track;
+  Track* new_track;
   double height = _geometry->getHeight();
+  double width = _geometry->getWidth();
+  double cell_width = width / _cx;
+  double cell_height = height / _cy;
+  int cell;
+  double phi;
+  double dist;
 
-  log_printf(INFO, "Generating decomposed Track start and end points...");
 
-  /* Decompose tracks */
-  for (int i = 0; i < _num_azim; i++) {
+  /* initialize 3D vector of tracks */
+  for (int cell = 0; cell < _cx*_cy; cell++){
 
-    /* Tracks for azimuthal angle i */
-    _tracks[i] = new Track[_num_tracks[i]];
-
-    /* Compute start points for Tracks starting on x-axis */
-    for (int j = 0; j < _num_x[i]; j++)
-      _tracks[i][j].getStart()->setCoords(dx_eff[i] * (0.5+j), 0);
-
-    /* Compute start points for Tracks starting on y-axis */
-    for (int j = 0; j < _num_y[i]; j++) {
-
-      /* If Track points to the upper right */
-      if (sin(phi_eff[i]) > 0 && cos(phi_eff[i]) > 0)
-        _tracks[i][_num_x[i]+j].getStart()->setCoords(0,
-                                     dy_eff[i] * (0.5 + j));
-
-      /* If Track points to the upper left */
-      else if (sin(phi_eff[i]) > 0 && cos(phi_eff[i]) < 0)
-        _tracks[i][_num_x[i]+j].getStart()->setCoords(width,
-                                     dy_eff[i] * (0.5 + j));
-    }
-
-    /* Compute the exit points for each Track */
-    for (int j = 0; j < _num_tracks[i]; j++) {
-
-      /* Set the Track's end point */
-      Point* start = _tracks[i][j].getStart();
-      Point* end = _tracks[i][j].getEnd();
-      computeEndPoint(start, end, phi_eff[i], width, height);
-
-      /* Set the Track's azimuthal angle */
-      _tracks[i][j].setPhi(phi_eff[i]);
+    std::vector< std::vector<Track*> > *tracks1 = new std::vector< std::vector<Track*> >;
+    _modular_tracks.push_back(*tracks1);
+    
+    for (int i = 0; i < _num_azim; i++) {
+      std::vector<Track*> *tracks2 = new std::vector<Track*>;
+      _modular_tracks.at(cell).push_back(*tracks2);          
     }
   }
 
-  delete [] dx_eff;
-  delete [] dy_eff;
-  delete [] d_eff;
-  delete [] phi_eff;
-}
+  /* inialize domain lattice */
+  _lattice = new Lattice(0, cell_width, cell_height);
+  _lattice->setNumX(_cx);
+  _lattice->setNumY(_cy);
 
+  log_printf(INFO, "decomposing tracks");
 
-/**
- * @brief Recalibrates Track start and end points to the origin of the Geometry.
- * @details The origin of the Geometry is designated at its center by
- *          convention, but for track initialization the origin is assumed to be
- *          at the bottom right corner for simplicity. This method corrects
- *          for this by re-assigning the start and end Point coordinates.
- */
-void TrackGenerator::recalibrateTracksToOrigin() {
+  /* Loop over tracks generated for the geometry and decompose them into 
+   * subtracks for each previous track. Add them to _modular_tracks */
+  for (int i = 0; i < _num_azim; i++) {
+
+    phi = _tracks[i][0].getPhi();
+
+    /* Loop the tracks for this azimuthal angle */
+    for (int j = 0; j < _num_tracks[i]; j++) {
+
+      /* add first track to first cell */
+      Track* first_track = new Track();
+      first_track->setPhi(phi);
+      first_track->getStart()->setX(_tracks[i][j].getStart()->getX());
+      first_track->getStart()->setY(_tracks[i][j].getStart()->getY());
+
+      /* find cell that contains track */
+      cell = findNextCell(first_track->getStart(), phi);
+
+      /* get distance to next cell */
+      dist = nextCellDist(first_track->getStart(), phi);
+
+      /* set track end point */
+      setEndPoint(first_track, dist);
+
+      /* add track to modular tracks vector */
+      _modular_tracks.at(cell).at(i).push_back(first_track);
+
+      /* indicate the tracks starting point is on a geometry boundary */
+      first_track->setOnBoundaryIn(1);
+      
+      /* get next cell */
+      cell = findNextCell(first_track->getEnd(), phi);
+      Track* new_track = first_track;
+      
+      while(cell != -1){
+
+        /* indicate that the end point of the previous track is not on 
+         * a geometry boundary */
+        new_track->setReflOut(0);
+        new_track->setBCOut(1);
+        new_track->setOnBoundaryOut(0);
+
+        /* initialize new track */
+        Track* old_track = new_track;
+        new_track = new Track();
+        new_track->setPhi(phi);
+        new_track->getStart()->setX(old_track->getEnd()->getX());
+        new_track->getStart()->setY(old_track->getEnd()->getY());
+
+        /* connect old and new tracks */
+        old_track->setTrackOut(new_track);
+        new_track->setTrackIn(old_track);
+
+        /* indicate that the start point of the new track is not on 
+         * a geometry boundary */
+        new_track->setReflIn(1);
+        new_track->setBCIn(1);
+        new_track->setOnBoundaryIn(0);
+        
+        /* get distance to next cell */
+        dist = nextCellDist(new_track->getStart(), phi);
+        
+        /* set track end point */
+        setEndPoint(new_track, dist);
+
+        /* add track to modular tracks vector */
+        _modular_tracks.at(cell).at(i).push_back(new_track);
+        
+        /* increment tracks counter */
+        _tot_num_tracks++;
+        
+        /* get next cell */
+        cell = findNextCell(new_track->getEnd(), phi);
+      }
+
+      /* indicate the the end point of the last track is on 
+       * a geometry boundary */
+      new_track->setOnBoundaryOut(1);
+
+      /* add macro track linking first and last subtracts to original macro track */
+      macro_track* new_macro_track = new macro_track;
+      new_macro_track->_start = first_track;
+      new_macro_track->_end = new_track;
+      _modular_track_map[&(_tracks[i][j])] = *new_macro_track;
+    }
+  }
 
   int uid = 0;
+  std::vector<Track*>::iterator iter;
 
-  for (int i = 0; i < _num_azim; i++) {
-    _tot_num_tracks += _num_tracks[i];
-
-    for (int j = 0; j < _num_tracks[i]; j++) {
-
-      _tracks[i][j].setUid(uid);
-      uid++;
-
-      double x0 = _tracks[i][j].getStart()->getX();
-      double y0 = _tracks[i][j].getStart()->getY();
-      double x1 = _tracks[i][j].getEnd()->getX();
-      double y1 = _tracks[i][j].getEnd()->getY();
-      double new_x0 = x0 - _geometry->getWidth()/2.0;
-      double new_y0 = y0 - _geometry->getHeight()/2.0;
-      double new_x1 = x1 - _geometry->getWidth()/2.0;
-      double new_y1 = y1 - _geometry->getHeight()/2.0;
-      double phi = _tracks[i][j].getPhi();
-
-      _tracks[i][j].setValues(new_x0, new_y0, new_x1,new_y1, phi);
-      _tracks[i][j].setAzimAngleIndex(i);
+  /* Set the uid for each track. This is used by the Solver to map the 
+   * track angular flux to a 1D angular flux array */
+  for (int cell = 0; cell < _cx*_cy; cell++){
+    for (int i=0; i < _num_azim; i++){
+      for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
+        (*iter)->setUid(uid);
+        uid++;
+      }
     }
   }
 }
 
 
-/**
- * @brief This helper method for TrackGenerator::generateTracks() finds the end
- *        Point of a Track with a defined start Point and an angle from x-axis.
- * @details This function does not return a value but instead saves the x/y
- *          coordinates of the end Point directly within the Track's end Point.
- * @param start pointer to the Track start Point
- * @param end pointer to a Point to store the end Point coordinates
- * @param phi the azimuthal angle
- * @param width the width of the Geometry (cm)
- * @param height the height of the Geometry (cm)
- */
-void TrackGenerator::computeEndPoint(Point* start, Point* end,
-                                     const double phi, const double width,
-                                     const double height) {
+void ModularTrackGenerator::setEndPoint(Track* track, double dist) {
+  double angle = track->getPhi();
+  double new_x = track->getStart()->getX() + cos(angle) * dist;
+  double new_y = track->getStart()->getY() + sin(angle) * dist;
+  track->getEnd()->setCoords(new_x, new_y);
+}
 
-  double m = sin(phi) / cos(phi);             /* slope */
-  double yin = start->getY();                 /* y-coord */
-  double xin = start->getX();                 /* x-coord */
 
-  /* Allocate memory for the possible intersection points */
-  Point *points = new Point[4];
+int ModularTrackGenerator::findNextCell(Point* point, double angle) {
+  double delta_x = cos(angle) * TINY_MOVE;
+  double delta_y = sin(angle) * TINY_MOVE;
+  point->setCoords(point->getX() + delta_x, point->getY() + delta_y);
+  int cell = _lattice->getLatticeCell(point);
+  point->setCoords(point->getX() - delta_x, point->getY() - delta_y);
+  return cell;
+}
 
-  /* Determine all possible Points */
-  points[0].setCoords(0, yin - m * xin);
-  points[1].setCoords(width, yin + m * (width - xin));
-  points[2].setCoords(xin - yin / m, 0);
-  points[3].setCoords(xin - (yin - height) / m, height);
 
-  /* For each of the possible intersection Points */
-  for (int i = 0; i < 4; i++) {
-    /* neglect the trivial Point (xin, yin) */
-    if (points[i].getX() == xin && points[i].getY() == yin) { }
-
-    /* The Point to return will be within the bounds of the cell */
-    else if (points[i].getX() >= 0 && points[i].getX() <= width
-             && points[i].getY() >= 0 && points[i].getY() <= height) {
-      end->setCoords(points[i].getX(), points[i].getY());
-    }
-  }
-
-    delete[] points;
-
-    return;
+double ModularTrackGenerator::nextCellDist(Point* point, double angle) {
+  double delta_x = cos(angle) * TINY_MOVE;
+  double delta_y = sin(angle) * TINY_MOVE;
+  point->setCoords(point->getX() + delta_x, point->getY() + delta_y);
+  double dist = _lattice->minSurfaceDist(point, angle);
+  dist += pow(pow(delta_x, 2) + pow(delta_y, 2), 0.5);
+  point->setCoords(point->getX() - delta_x, point->getY() - delta_y);
+  return dist;
 }
 
 
@@ -318,7 +372,7 @@ void TrackGenerator::computeEndPoint(Point* start, Point* end,
  *          for each Track using a special indexing scheme into the 2D jagged
  *          array of Tracks.
  */
-void TrackGenerator::initializeBoundaryConditions() {
+void ModularTrackGenerator::initializeBoundaryConditions() {
 
   log_printf(INFO, "Initializing Track boundary conditions...");
 
@@ -347,130 +401,100 @@ void TrackGenerator::initializeBoundaryConditions() {
 
         /* Bottom to right hand side */
         if (j < nxi) {
-          curr[j].setTrackIn(&refl[j]);
-          curr[j].setTrackInI(_num_azim - i - 1);
-          curr[j].setTrackInJ(j);
+          curr_track(i,j)._start->setTrackIn(refl_track(i,j)._start);
+          refl_track(i,j)._start->setTrackIn(curr_track(i,j)._start);
 
-          refl[j].setTrackIn(&curr[j]);
-          refl[j].setTrackInI(i);
-          refl[j].setTrackInJ(j);
-
-          curr[j].setReflIn(false);
-          refl[j].setReflIn(false);
+          curr_track(i,j)._start->setReflIn(false);
+          refl_track(i,j)._start->setReflIn(false);
 
           if (_geometry->getBCBottom() == REFLECTIVE) {
-            curr[j].setBCIn(1);
-            refl[j].setBCIn(1);
+            curr_track(i,j)._start->setBCIn(1);
+            refl_track(i,j)._start->setBCIn(1);
           }
           else {
-            curr[j].setBCIn(0);
-            refl[j].setBCIn(0);
+            curr_track(i,j)._start->setBCIn(0);
+            refl_track(i,j)._start->setBCIn(0);
           }
 
-          curr[j].setTrackOut(&refl[2 * nxi - 1 - j]);
-          curr[j].setTrackOutI(_num_azim - i - 1);
-          curr[j].setTrackOutJ(2 * nxi - 1 - j);
+          curr_track(i,j)._end->setTrackOut(refl_track(i,2 * nxi - 1 - j)._start);
+          refl_track(i,2 * nxi - 1 - j)._start->setTrackIn(curr_track(i,j)._end);
 
-          refl[2 * nxi - 1 - j].setTrackIn(&curr[j]);
-          refl[2 * nxi - 1 - j].setTrackInI(i);
-          refl[2 * nxi - 1 - j].setTrackInJ(j);
-
-          curr[j].setReflOut(false);
-          refl[2 * nxi - 1 - j].setReflIn(true);
+          curr_track(i,j)._end->setReflOut(false);
+          refl_track(i,2 * nxi - 1 - j)._start->setReflIn(true);
 
           if (_geometry->getBCRight() == REFLECTIVE) {
-            curr[j].setBCOut(1);
-            refl[2 * nxi - 1 - j].setBCIn(1);
+            curr_track(i,j)._end->setBCOut(1);
+            refl_track(i,2 * nxi - 1 - j)._start->setBCIn(1);
           }
           else {
-            curr[j].setBCOut(0);
-            refl[2 * nxi - 1 - j].setBCIn(0);
+            curr_track(i,j)._end->setBCOut(0);
+            refl_track(i,2 * nxi - 1 - j)._start->setBCIn(0);
           }
         }
 
         /* Left hand side to right hand side */
         else if (j < nyi) {
-          curr[j].setTrackIn(&refl[j - nxi]);
-          curr[j].setTrackInI(_num_azim - i - 1);
-          curr[j].setTrackInJ(j - nxi);
+          curr_track(i,j)._start->setTrackIn(refl_track(i,j - nxi)._end);
+          refl_track(i,j - nxi)._end->setTrackOut(curr_track(i,j)._start);
 
-          refl[j - nxi].setTrackOut(&curr[j]);
-          refl[j - nxi].setTrackOutI(i);
-          refl[j - nxi].setTrackOutJ(j);
-
-          curr[j].setReflIn(true);
-          refl[j - nxi].setReflOut(false);
+          curr_track(i,j)._start->setReflIn(true);
+          refl_track(i,j - nxi)._end->setReflOut(false);
 
           if (_geometry->getBCLeft() == REFLECTIVE) {
-            curr[j].setBCIn(1);
-            refl[j - nxi].setBCOut(1);
+            curr_track(i,j)._start->setBCIn(1);
+            refl_track(i,j - nxi)._end->setBCOut(1);
           }
           else {
-            curr[j].setBCIn(0);
-            refl[j - nxi].setBCOut(0);
+            curr_track(i,j)._start->setBCIn(0);
+            refl_track(i,j - nxi)._end->setBCOut(0);
           }
 
-          curr[j].setTrackOut(&refl[j + nxi]);
-          curr[j].setTrackOutI(_num_azim - i - 1);
-          curr[j].setTrackOutJ(j + nxi);
+          curr_track(i,j)._end->setTrackOut(refl_track(i,j + nxi)._start);
+          refl_track(i,j + nxi)._start->setTrackIn(curr_track(i,j)._end);
 
-          refl[j + nxi].setTrackIn(&curr[j]);
-          refl[j + nxi].setTrackInI(i);
-          refl[j + nxi].setTrackInJ(j);
-
-          curr[j].setReflOut(false);
-          refl[j + nxi].setReflIn(true);
+          curr_track(i,j)._end->setReflOut(false);
+          refl_track(i,j + nxi)._start->setReflIn(true);
 
           if (_geometry->getBCRight() == REFLECTIVE) {
-            curr[j].setBCOut(1);
-            refl[j + nxi].setBCIn(1);
+            curr_track(i,j)._end->setBCOut(1);
+            refl_track(i,j + nxi)._start->setBCIn(1);
           }
           else {
-            curr[j].setBCOut(0);
-            refl[j + nxi].setBCIn(0);
+            curr_track(i,j)._end->setBCOut(0);
+            refl_track(i,j + nxi)._start->setBCIn(0);
           }
         }
 
         /* Left hand side to top (j > ny) */
         else {
-          curr[j].setTrackIn(&refl[j - nxi]);
-          curr[j].setTrackInI(_num_azim - i - 1);
-          curr[j].setTrackInJ(j - nxi);
+          curr_track(i,j)._start->setTrackIn(refl_track(i,j - nxi)._end);
+          refl_track(i,j - nxi)._end->setTrackOut(curr_track(i,j)._start);
 
-          refl[j - nxi].setTrackOut(&curr[j]);
-          refl[j - nxi].setTrackOutI(i);
-          refl[j - nxi].setTrackOutJ(j);
-
-          curr[j].setReflIn(true);
-          refl[j - nxi].setReflOut(false);
+          curr_track(i,j)._start->setReflIn(true);
+          refl_track(i,j - nxi)._end->setReflOut(false);
 
           if (_geometry->getBCLeft() == REFLECTIVE) {
-            curr[j].setBCIn(1);
-            refl[j - nxi].setBCOut(1);
+            curr_track(i,j)._start->setBCIn(1);
+            refl_track(i,j - nxi)._end->setBCOut(1);
           }
           else {
-            curr[j].setBCIn(0);
-            refl[j - nxi].setBCOut(0);
+            curr_track(i,j)._start->setBCIn(0);
+            refl_track(i,j - nxi)._end->setBCOut(0);
           }
 
-          curr[j].setTrackOut(&refl[2 * nti - nxi - j - 1]);
-          curr[j].setTrackOutI(_num_azim - i - 1);
-          curr[j].setTrackOutJ(2 * nti - nxi - j - 1);
+          curr_track(i,j)._end->setTrackOut(refl_track(i,2 * nti - nxi - j - 1)._end);
+          refl_track(i,2 * nti - nxi - j - 1)._end->setTrackOut(curr_track(i,j)._end);
 
-          refl[2 * nti - nxi - j - 1].setTrackOut(&curr[j]);
-          refl[2 * nti - nxi - j - 1].setTrackOutI(i);
-          refl[2 * nti - nxi - j - 1].setTrackOutJ(j);
-
-          curr[j].setReflOut(true);
-          refl[2 * nti - nxi - j - 1].setReflOut(true);
+          curr_track(i,j)._end->setReflOut(true);
+          refl_track(i,2 * nti - nxi - j - 1)._end->setReflOut(true);
 
           if (_geometry->getBCTop() == REFLECTIVE) {
-            curr[j].setBCOut(1);
-            refl[2 * nti - nxi - j - 1].setBCOut(1);
+            curr_track(i,j)._end->setBCOut(1);
+            refl_track(i,2 * nti - nxi - j - 1)._end->setBCOut(1);
           }
           else {
-            curr[j].setBCOut(0);
-            refl[2 * nti - nxi - j - 1].setBCOut(0);
+            curr_track(i,j)._end->setBCOut(0);
+            refl_track(i,2 * nti - nxi - j - 1)._end->setBCOut(0);
           }
         }
       }
@@ -480,130 +504,100 @@ void TrackGenerator::initializeBoundaryConditions() {
 
         /* Bottom to top */
         if (j < nxi - nyi) {
-          curr[j].setTrackIn(&refl[j]);
-          curr[j].setTrackInI(_num_azim - i - 1);
-          curr[j].setTrackInJ(j);
+          curr_track(i,j)._start->setTrackIn(refl_track(i,j)._start);
+          refl_track(i,j)._start->setTrackIn(curr_track(i,j)._start);
 
-          refl[j].setTrackIn(&curr[j]);
-          refl[j].setTrackInI(i);
-          refl[j].setTrackInJ(j);
-
-          curr[j].setReflIn(false);
-          refl[j].setReflIn(false);
+          curr_track(i,j)._start->setReflIn(false);
+          refl_track(i,j)._start->setReflIn(false);
 
           if (_geometry->getBCBottom() == REFLECTIVE) {
-            curr[j].setBCIn(1);
-            refl[j].setBCIn(1);
+            curr_track(i,j)._start->setBCIn(1);
+            refl_track(i,j)._start->setBCIn(1);
          }
           else {
-            curr[j].setBCIn(0);
-            refl[j].setBCIn(0);
+            curr_track(i,j)._start->setBCIn(0);
+            refl_track(i,j)._start->setBCIn(0);
           }
 
-          curr[j].setTrackOut(&refl[nti - (nxi - nyi) + j]);
-          curr[j].setTrackOutI(_num_azim - i - 1);
-          curr[j].setTrackOutJ(nti - (nxi - nyi) + j);
+          curr_track(i,j)._end->setTrackOut(refl_track(i,nti - (nxi - nyi) + j)._end);
+          refl_track(i,nti - (nxi - nyi) + j)._end->setTrackOut(curr_track(i,j)._end);
 
-          refl[nti - (nxi - nyi) + j].setTrackOut(&curr[j]);
-          refl[nti - (nxi - nyi) + j].setTrackOutI(i);
-          refl[nti - (nxi - nyi) + j].setTrackOutJ(j);
-
-          curr[j].setReflOut(true);
-          refl[nti - (nxi - nyi) + j].setReflOut(true);
+          curr_track(i,j)._end->setReflOut(true);
+          refl_track(i,nti - (nxi - nyi) + j)._end->setReflOut(true);
 
           if (_geometry->getBCTop() == REFLECTIVE) {
-            curr[j].setBCOut(1);
-            refl[nti - (nxi - nyi) + j].setBCOut(1);
+            curr_track(i,j)._end->setBCOut(1);
+            refl_track(i,nti - (nxi - nyi) + j)._end->setBCOut(1);
           }
           else {
-            curr[j].setBCOut(0);
-           refl[nti - (nxi - nyi) + j].setBCOut(0);
+            curr_track(i,j)._end->setBCOut(0);
+            refl_track(i,nti - (nxi - nyi) + j)._end->setBCOut(0);
           }
         }
 
         /* Bottom to right hand side */
         else if (j < nxi) {
-          curr[j].setTrackIn(&refl[j]);
-          curr[j].setTrackInI(_num_azim - i - 1);
-          curr[j].setTrackInJ(j);
+          curr_track(i,j)._start->setTrackIn(refl_track(i,j)._start);
+          refl_track(i,j)._start->setTrackIn(curr_track(i,j)._start);
 
-          refl[j].setTrackIn(&curr[j]);
-          refl[j].setTrackInI(i);
-          refl[j].setTrackInJ(j);
-
-          curr[j].setReflIn(false);
-          refl[j].setReflIn(false);
+          curr_track(i,j)._start->setReflIn(false);
+          refl_track(i,j)._start->setReflIn(false);
 
           if (_geometry->getBCBottom() == REFLECTIVE) {
-            curr[j].setBCIn(1);
-            refl[j].setBCIn(1);
+            curr_track(i,j)._start->setBCIn(1);
+            refl_track(i,j)._start->setBCIn(1);
           }
           else {
-            curr[j].setBCIn(0);
-            refl[j].setBCIn(0);
+            curr_track(i,j)._start->setBCIn(0);
+            refl_track(i,j)._start->setBCIn(0);
           }
 
-          curr[j].setTrackOut(&refl[nxi + (nxi - j) - 1]);
-          curr[j].setTrackOutI(_num_azim - i - 1);
-          curr[j].setTrackOutJ(nxi + (nxi - j) - 1);
+          curr_track(i,j)._end->setTrackOut(refl_track(i,nxi + (nxi - j) - 1)._start);
+          refl_track(i,nxi + (nxi - j) - 1)._start->setTrackIn(curr_track(i,j)._end);
 
-          refl[nxi + (nxi - j) - 1].setTrackIn(&curr[j]);
-          refl[nxi + (nxi - j) - 1].setTrackInI(i);
-          refl[nxi + (nxi - j) - 1].setTrackInJ(j);
-
-          curr[j].setReflOut(false);
-          refl[nxi + (nxi - j) - 1].setReflIn(true);
+          curr_track(i,j)._end->setReflOut(false);
+          refl_track(i,nxi + (nxi - j) - 1)._start->setReflIn(true);
 
           if (_geometry->getBCRight() == REFLECTIVE) {
-            curr[j].setBCOut(1);
-            refl[nxi + (nxi - j) - 1].setBCIn(1);
+            curr_track(i,j)._end->setBCOut(1);
+            refl_track(i,nxi + (nxi - j) - 1)._start->setBCIn(1);
           }
           else {
-            curr[j].setBCOut(0);
-            refl[nxi + (nxi - j) - 1].setBCIn(0);
+            curr_track(i,j)._end->setBCOut(0);
+            refl_track(i,nxi + (nxi - j) - 1)._start->setBCIn(0);
           }
         }
 
         /* Left-hand side to top (j > nx) */
         else {
-          curr[j].setTrackIn(&refl[j - nxi]);
-          curr[j].setTrackInI(_num_azim - i - 1);
-          curr[j].setTrackInJ(j - nxi);
+          curr_track(i,j)._start->setTrackIn(refl_track(i,j - nxi)._end);
+          refl_track(i,j - nxi)._end->setTrackOut(curr_track(i,j)._start);
 
-          refl[j - nxi].setTrackOut(&curr[j]);
-          refl[j - nxi].setTrackOutI(i);
-          refl[j - nxi].setTrackOutJ(j);
-
-          curr[j].setReflIn(true);
-          refl[j - nxi].setReflOut(false);
+          curr_track(i,j)._start->setReflIn(true);
+          refl_track(i,j - nxi)._end->setReflOut(false);
 
           if (_geometry->getBCLeft() == REFLECTIVE) {
-            curr[j].setBCIn(1);
-            refl[j - nxi].setBCOut(1);
+            curr_track(i,j)._start->setBCIn(1);
+            refl_track(i,j - nxi)._end->setBCOut(1);
           }
           else {
-            curr[j].setBCIn(0);
-            refl[j - nxi].setBCOut(0);
+            curr_track(i,j)._start->setBCIn(0);
+            refl_track(i,j - nxi)._end->setBCOut(0);
           }
 
-          curr[j].setTrackOut(&refl[nyi + (nti - j) - 1]);
-          curr[j].setTrackOutI(_num_azim - i - 1);
-          curr[j].setTrackOutJ(nyi + (nti - j) - 1);
+          curr_track(i,j)._end->setTrackOut(refl_track(i,nyi + (nti - j) - 1)._end);
+          refl_track(i,nyi + (nti - j) - 1)._end->setTrackOut(curr_track(i,j)._end);
 
-          refl[nyi + (nti - j) - 1].setTrackOut(&curr[j]);
-          refl[nyi + (nti - j) - 1].setTrackOutI(i);
-          refl[nyi + (nti - j) - 1].setTrackOutJ(j);
-
-          curr[j].setReflOut(true);
-          refl[nyi + (nti - j) - 1].setReflOut(true);
+          curr_track(i,j)._end->setReflOut(true);
+          refl_track(i,nyi + (nti - j) - 1)._end->setReflOut(true);
 
           if (_geometry->getBCTop() == REFLECTIVE) {
-            curr[j].setBCOut(1);
-            refl[nyi + (nti - j) - 1].setBCOut(1);
+            curr_track(i,j)._end->setBCOut(1);
+            refl_track(i,nyi + (nti - j) - 1)._end->setBCOut(1);
           }
           else {
-            curr[j].setBCOut(0);
-            refl[nyi + (nti - j) - 1].setBCOut(0);
+            curr_track(i,j)._end->setBCOut(0);
+            refl_track(i,nyi + (nti - j) - 1)._end->setBCOut(0);
           }
         }
       }
@@ -617,11 +611,12 @@ void TrackGenerator::initializeBoundaryConditions() {
 /**
  * @brief Generate segments for each Track across the Geometry.
  */
-void TrackGenerator::segmentize() {
+void ModularTrackGenerator::segmentize() {
 
-  log_printf(NORMAL, "Ray tracing for track segmentation...");
+  log_printf(NORMAL, "Ray tracing for modular track segmentation...");
 
   Track* track;
+  std::vector<Track*>::iterator iter;
 
   if (_num_segments != NULL)
     delete [] _num_segments;
@@ -630,30 +625,41 @@ void TrackGenerator::segmentize() {
    * Tracks were not read in from an input file */
   if (!_use_input_file) {
 
+    log_printf(NORMAL, "segmenting tracks...");
+
     /* Loop over all Tracks */
-    #pragma omp parallel for private(track)
-    for (int i=0; i < _num_azim; i++) {
-      for (int j=0; j < _num_tracks[i]; j++){
-        track = &_tracks[i][j];
-        log_printf(DEBUG, "Segmenting Track %d/%d with i = %d, j = %d",
-        track->getUid(), _tot_num_tracks, i, j);
-        _geometry->segmentize(track);
+    #pragma omp parallel for private(iter, track)
+    for (int cell = 0; cell < _cx*_cy; cell++){
+      for (int i=0; i < _num_azim; i++) {
+        for (iter = _modular_tracks.at(cell).at(i).begin(); 
+             iter != _modular_tracks.at(cell).at(i).end(); ++iter){
+          track = *iter;
+          log_printf(DEBUG, "Segmenting Track %d/%d with i = %d, cell = %d",
+                     track->getUid(), _modular_tracks.at(cell).at(i).size(),
+                     i, cell);
+          _geometry->segmentize(track);
+        }
       }
     }
+
+    log_printf(NORMAL, "done segmenting tracks...");
 
     /* Compute the total number of segments in the simulation */
     _num_segments = new int[_tot_num_tracks];
     _tot_num_segments = 0;
 
-    for (int i=0; i < _num_azim; i++) {
-      for (int j=0; j < _num_tracks[i]; j++) {
-        track = &_tracks[i][j];
-        _num_segments[track->getUid()] = track->getNumSegments();
-        _tot_num_segments += _num_segments[track->getUid()];
+    for (int cell = 0; cell < _cx*_cy; cell++){
+      for (int i=0; i < _num_azim; i++) {
+        for (iter = _modular_tracks.at(cell).at(i).begin(); 
+             iter != _modular_tracks.at(cell).at(i).end(); ++iter){
+          track = *iter;
+          _num_segments[track->getUid()] = track->getNumSegments();
+          _tot_num_segments += _num_segments[track->getUid()];
+        }
       }
     }
   }
-
+  
   _contains_tracks = true;
   
   return;
@@ -661,373 +667,126 @@ void TrackGenerator::segmentize() {
 
 
 /**
- * @brief Writes all Track and segment data to a "*.tracks" binary file.
- * @details Storing Tracks in a binary file saves time by eliminating ray
- *          tracing for Track segmentation in commonly simulated geometries.
+ * @brief Fills an array with the x,y coordinates for each Track segment.
+ * @details This class method is intended to be called by the OpenMOC
+ *          Python "plotter" module as a utility to assist in plotting
+ *          segments. Although this method appears to require two arguments,
+ *          in reality it only requires one due to SWIG and would be called
+ *          from within Python as follows:
+ *
+ * @code
+ *          num_segments = track_generator.getNumSegments()
+ *          coords = track_generator.retrieveSegmentCoords(num_segments*5)
+ * @endcode
+ *
+ * @param coords an array of coords of length 5 times the number of segments
+ * @param num_segments the total number of Track segments
  */
-void TrackGenerator::dumpTracksToFile() {
+void ModularTrackGenerator::retrieveSegmentCoords(double* coords, int num_segments) {
 
-  log_printf(NORMAL, "Dumping tracks to file...");
+  if (num_segments != 5*getNumSegments())
+    log_printf(ERROR, "Unable to retrieve the Track segment coordinates since "
+               "the TrackGenerator contains %d segments with %d coordinates "
+               "but an array of length %d was input",
+               getNumSegments(), 5*getNumSegments(), num_segments);
 
-  if (!_contains_tracks)
-    log_printf(ERROR, "Unable to dump Tracks to a file since no Tracks have "
-      "been generated for %d azimuthal angles and %f track spacing",
-      _num_azim, _spacing);
-
-  FILE* out;
-  out = fopen(_tracks_filename.c_str(), "w");
-
-  /* Get a string representation of the Geometry's attributes. This is used to
-   * check whether or not ray tracing has been performed for this Geometry */
-  std::string geometry_to_string = _geometry->toString();
-  int string_length = geometry_to_string.length() + 1;
-
-  /* Write geometry metadata to the Track file */
-  fwrite(&string_length, sizeof(int), 1, out);
-  fwrite(geometry_to_string.c_str(), sizeof(char)*(string_length), 1, out);
-
-  /* Write ray tracing metadata to the Track file */
-  fwrite(&_num_azim, sizeof(int), 1, out);
-  fwrite(&_spacing, sizeof(double), 1, out);
-  fwrite(_num_tracks, sizeof(int), _num_azim, out);
-  fwrite(_num_x, sizeof(int), _num_azim, out);
-  fwrite(_num_y, sizeof(int), _num_azim, out);
-
-  /* Write the azimuthal angle quadrature weights to the Track file */
-  double* azim_weights = new double[_num_azim];
-  for (int i=0; i < _num_azim; i++)
-    azim_weights[i] = _azim_weights[i];
-  fwrite(azim_weights, sizeof(double), _num_azim, out);
-  free(azim_weights);
-
-  Track* curr_track;
-  double x0, y0, x1, y1;
+  segment* curr_segment = NULL;
+  double x0, x1, y0, y1;
   double phi;
-  int azim_angle_index;
-  int num_segments;
-  std::vector<segment*> _segments;
-  Cmfd* cmfd = _geometry->getCmfd();
+  segment* segments;
+  Track* track;
 
-  segment* curr_segment;
-  double length;
-  int material_id;
-  int region_id;
-  int mesh_surface_fwd;
-  int mesh_surface_bwd;
+  int counter = 0;
+  std::vector<Track*>::iterator iter;
 
-  /* Loop over all Tracks */
-  for (int i=0; i < _num_azim; i++) {
-    for (int j=0; j < _num_tracks[i]; j++) {
+  /* Loop over Track segments and populate array with their FSR ID and *
+   * start/end points */
+  for (int cell=0; cell < _cx*_cy; cell++) {
+    for (int i=0; i < _num_azim; i++) {
+      for (iter = _modular_tracks.at(cell).at(i).begin(); 
+          iter != _modular_tracks.at(cell).at(i).end(); ++iter){
+      
+        track = *iter;
+        x0 = track->getStart()->getX();
+        y0 = track->getStart()->getY();
+        phi = track->getPhi();
+        
+        segments = track->getSegments();
 
-      /* Get data for this Track */
-      curr_track = &_tracks[i][j];
-      x0 = curr_track->getStart()->getX();
-      y0 = curr_track->getStart()->getY();
-      x1 = curr_track->getEnd()->getX();
-      y1 = curr_track->getEnd()->getY();
-      phi = curr_track->getPhi();
-      azim_angle_index = curr_track->getAzimAngleIndex();
-      num_segments = curr_track->getNumSegments();
+        for (int s=0; s < track->getNumSegments(); s++) {
+          curr_segment = &segments[s];
 
-      /* Write data for this Track to the Track file */
-      fwrite(&x0, sizeof(double), 1, out);
-      fwrite(&y0, sizeof(double), 1, out);
-      fwrite(&x1, sizeof(double), 1, out);
-      fwrite(&y1, sizeof(double), 1, out);
-      fwrite(&phi, sizeof(double), 1, out);
-      fwrite(&azim_angle_index, sizeof(int), 1, out);
-      fwrite(&num_segments, sizeof(int), 1, out);
+          coords[counter] = curr_segment->_region_id;
+          //coords[counter] = cell;
 
-      /* Loop over all segments for this Track */
-      for (int s=0; s < num_segments; s++) {
-
-        /* Get data for this segment */
-        curr_segment = curr_track->getSegment(s);
-        length = curr_segment->_length;
-        material_id = curr_segment->_material->getId();
-        region_id = curr_segment->_region_id;
-
-        /* Write data for this segment to the Track file */
-        fwrite(&length, sizeof(double), 1, out);
-        fwrite(&material_id, sizeof(int), 1, out);
-        fwrite(&region_id, sizeof(int), 1, out);
-
-        /* Write CMFD-related data for the Track if needed */
-        if (cmfd->getOverlayMesh()){
-          mesh_surface_fwd = curr_segment->_cmfd_surface_fwd;
-          mesh_surface_bwd = curr_segment->_cmfd_surface_bwd;
-          fwrite(&mesh_surface_fwd, sizeof(int), 1, out);
-          fwrite(&mesh_surface_bwd, sizeof(int), 1, out);
+          coords[counter+1] = x0;
+          coords[counter+2] = y0;
+          
+          x1 = x0 + cos(phi) * curr_segment->_length;
+          y1 = y0 + sin(phi) * curr_segment->_length;
+          
+          coords[counter+3] = x1;
+          coords[counter+4] = y1;
+          
+          x0 = x1;
+          y0 = y1;
+          
+          counter += 5;
         }
       }
-    }      
+    }
   }
 
-  /* get FSR vector maps */
-  std::vector<std::string> FSRs_to_keys = _geometry->getFSRsToKeys();
-  std::vector<int> FSRs_to_cells = _geometry->getFSRsToCells();
-  std::vector<int> FSRs_to_material_UIDs = _geometry->getFSRsToMaterialUIDs();
-  std::vector<int> FSRs_to_material_IDs = _geometry->getFSRsToMaterialIDs();
-  std::string fsr_key;
+    return;
+}
 
-  /* write number of FSRs */
-  int num_FSRs = _geometry->getNumFSRs();
-  fwrite(&num_FSRs, sizeof(int), 1, out);
 
-  /* write FSR vector maps to file */
-  for (int fsr_id=0; fsr_id < num_FSRs; fsr_id++){
+/**
+ * @brief Fills an array with the x,y coordinates for each Track.
+ * @details This class method is intended to be called by the OpenMOC
+ *          Python "plotter" module as a utility to assist in plotting
+ *          tracks. Although this method appears to require two arguments,
+ *          in reality it only requires on due to SWIG and would be called
+ *          from within Python as follows:
+ *
+ * @code
+ *          num_tracks = track_generator.getNumTracks()
+ *          coords = track_generator.retrieveTrackCoords(num_tracks*4)
+ * @endcode
+ *
+ * @param coords an array of coords of length 4 times the number of Tracks
+ * @param num_tracks the total number of Tracks
+ */
+void ModularTrackGenerator::retrieveTrackCoords(double* coords, int num_tracks) {
 
-    fsr_key = FSRs_to_keys.at(fsr_id);
-    string_length = fsr_key.length() + 1;
-    fwrite(&string_length, sizeof(int), 1, out);
-    fwrite(fsr_key.c_str(), sizeof(char)*string_length, 1, out);
-    fwrite(&(FSRs_to_cells.at(fsr_id)), sizeof(int), 1, out);
-    fwrite(&(FSRs_to_material_UIDs.at(fsr_id)), sizeof(int), 1, out);
-    fwrite(&(FSRs_to_material_IDs.at(fsr_id)), sizeof(int), 1, out);
+  if (num_tracks != 4*getNumTracks())
+    log_printf(ERROR, "Unable to retrieve the Track coordinates since the "
+               "TrackGenerator contains %d Tracks with %d coordinates but an "
+               "array of length %d was input",
+               getNumTracks(), 4*getNumTracks(), num_tracks);
+
+  int counter = 0;
+  std::vector<Track*>::iterator iter;
+  Track* track;
+
+  /* Loop over Track segments and populate array with their FSR ID and *
+   * start/end points */
+  for (int cell=0; cell < _cx*_cy; cell++) {
+    for (int i=0; i < _num_azim; i++) {
+      for (iter = _modular_tracks.at(cell).at(i).begin(); 
+          iter != _modular_tracks.at(cell).at(i).end(); ++iter){
+      
+        track = *iter;
+        coords[counter] = track->getStart()->getX();
+        coords[counter+1] = track->getStart()->getY();
+        coords[counter+2] = track->getEnd()->getX();
+        coords[counter+3] = track->getEnd()->getY();
+        counter += 4;
+      }
+    }
   }
-
-  /* write cmfd_fsrs vector of vectors to file */
-  if (cmfd->getOverlayMesh()){
-    std::vector< std::vector<int> > cell_fsrs = cmfd->getCellFSRs();
-    std::vector<int>::iterator iter;
-    int num_cells = cmfd->getNumCells();
-    fwrite(&num_cells, sizeof(int), 1, out);
-
-    /* Loop over CMFD cells */
-    for (int cell=0; cell < num_cells; cell++){
-      num_FSRs = cell_fsrs.at(cell).size(); 
-      fwrite(&num_FSRs, sizeof(int), 1, out);
-
-      /* Loop over FSRs within cell */
-      for (iter = cell_fsrs.at(cell).begin(); iter != cell_fsrs.at(cell).end(); ++iter)
-        fwrite(&(*iter), sizeof(int), 1, out);
-    }        
-  }   
-   
-  /* Close the Track file */
-  fclose(out);
-  
-  /* Inform other the TrackGenerator::generateTracks() method that it may
-   * import ray tracing data from this file if it is called and the ray
-   * tracing parameters have not changed */
-  _use_input_file = true;
 
   return;
 }
 
 
-/**
- * @brief Reads Tracks in from a "*.tracks" binary file.
- * @details Storing Tracks in a binary file saves time by eliminating ray
- *          tracing for Track segmentation in commonly simulated geometries.
- * @return true if able to read Tracks in from a file; false otherwise
- */
-bool TrackGenerator::readTracksFromFile() {
-
-  /* Deletes Tracks arrays if tracks have been generated */
-  if (_contains_tracks) {
-    delete [] _num_tracks;
-    delete [] _num_segments;
-    delete [] _num_x;
-    delete [] _num_y;
-    delete [] _azim_weights;
-
-    for (int i = 0; i < _num_azim; i++)
-      delete [] _tracks[i];
-
-    delete [] _tracks;
-  }
-
-  int ret;
-  FILE* in;
-  in = fopen(_tracks_filename.c_str(), "r");
-
-  int string_length;
-
-  /* Import Geometry metadata from the Track file */
-  ret = fread(&string_length, sizeof(int), 1, in);
-  char* geometry_to_string = new char[string_length];
-  ret = fread(geometry_to_string, sizeof(char)*string_length, 1, in);
-
-  /* Check if our Geometry is exactly the same as the Geometry in the
-   * Track file for this number of azimuthal angles and track spacing */
-  if (_geometry->toString().compare(std::string(geometry_to_string)) != 0)
-    return false;
-
-  delete [] geometry_to_string;
-
-  log_printf(NORMAL, "Importing ray tracing data from file...");
-
-  /* Import ray tracing metadata from the Track file */
-  ret = fread(&_num_azim, sizeof(int), 1, in);
-  ret = fread(&_spacing, sizeof(double), 1, in);
-
-  /* Initialize data structures for Tracks */
-  _num_tracks = new int[_num_azim];
-  _num_x = new int[_num_azim];
-  _num_y = new int[_num_azim];
-  _azim_weights = new FP_PRECISION[_num_azim];
-  double* azim_weights = new double[_num_azim];
-  _tracks = new Track*[_num_azim];
-
-  ret = fread(_num_tracks, sizeof(int), _num_azim, in);
-  ret = fread(_num_x, sizeof(int), _num_azim, in);
-  ret = fread(_num_y, sizeof(int), _num_azim, in);
-  ret = fread(azim_weights, sizeof(double), _num_azim, in);
-
-  /* Import azimuthal angle quadrature weights from Track file */
-  for (int i=0; i < _num_azim; i++)
-    _azim_weights[i] = azim_weights[i];
-
-  free(azim_weights);
-
-  Track* curr_track;
-  double x0, y0, x1, y1;
-  double phi;
-  int azim_angle_index;
-  int num_segments;
-  Cmfd* cmfd = _geometry->getCmfd();
-
-  double length;
-  int material_id;
-  int region_id;
-
-  int mesh_surface_fwd;
-  int mesh_surface_bwd;
-
-  /* Calculate the total number of Tracks */
-  for (int i=0; i < _num_azim; i++)
-    _tot_num_tracks += _num_tracks[i];
-
-  /* Allocate memory for the number of segments per Track array */
-  _num_segments = new int[_tot_num_tracks];
-
-  int uid = 0;
-  _tot_num_segments = 0;
-
-  /* Loop over Tracks */
-  for (int i=0; i < _num_azim; i++) {
-
-    _tracks[i] = new Track[_num_tracks[i]];
-
-    for (int j=0; j < _num_tracks[i]; j++) {
-
-      /* Import data for this Track from Track file */
-      ret = fread(&x0, sizeof(double), 1, in);
-      ret = fread(&y0, sizeof(double), 1, in);
-      ret = fread(&x1, sizeof(double), 1, in);
-      ret = fread(&y1, sizeof(double), 1, in);
-      ret = fread(&phi, sizeof(double), 1, in);
-      ret = fread(&azim_angle_index, sizeof(int), 1, in);
-      ret = fread(&num_segments, sizeof(int), 1, in);
-
-      _tot_num_segments += num_segments;
-      _num_segments[uid] += num_segments;
-
-      /* Initialize a Track with this data */
-      curr_track = &_tracks[i][j];
-      curr_track->setValues(x0, y0, x1, y1, phi);
-      curr_track->setUid(uid);
-      curr_track->setAzimAngleIndex(azim_angle_index);
-
-      /* Loop over all segments in this Track */
-      for (int s=0; s < num_segments; s++) {
-
-        /* Import data for this segment from Track file */
-        ret = fread(&length, sizeof(double), 1, in);
-        ret = fread(&material_id, sizeof(int), 1, in);
-        ret = fread(&region_id, sizeof(int), 1, in);
-
-        /* Initialize segment with the data */
-        segment* curr_segment = new segment;
-        curr_segment->_length = length;
-        curr_segment->_material = _geometry->getMaterial(material_id);
-        curr_segment->_region_id = region_id;
-
-        /* Import CMFD-related data if needed */
-        if (cmfd->getOverlayMesh()){
-          ret = fread(&mesh_surface_fwd, sizeof(int), 1, in);
-          ret = fread(&mesh_surface_bwd, sizeof(int), 1, in);
-          curr_segment->_cmfd_surface_fwd = mesh_surface_fwd;
-          curr_segment->_cmfd_surface_bwd = mesh_surface_bwd;
-        }
-
-        /* Add this segment to the Track */
-        curr_track->addSegment(curr_segment);
-      }
-
-      uid++;
-    }
-  }
-
-  /* Create FSR vector maps */
-  std::unordered_map<std::string, int> FSR_keys_map;
-  std::vector<std::string> FSRs_to_keys;
-  std::vector<int> FSRs_to_cells;
-  std::vector<int> FSRs_to_material_UIDs;
-  std::vector<int> FSRs_to_material_IDs;
-  int cell_id, material_uid, num_FSRs;
-
-  /* Get number of FSRs */
-  ret = fread(&num_FSRs, sizeof(int), 1, in);
-  _geometry->setNumFSRs(num_FSRs);
-
-  /* Read FSR vector maps from file */
-  for (int fsr_id=0; fsr_id < num_FSRs; fsr_id++){
-
-    ret = fread(&string_length, sizeof(int), 1, in);
-    char* fsr_key = new char[string_length];
-    ret = fread(fsr_key, sizeof(char)*string_length, 1, in);
-    ret = fread(&cell_id, sizeof(int), 1, in);
-    ret = fread(&material_uid, sizeof(int), 1, in);
-    ret = fread(&material_id, sizeof(int), 1, in);
-
-    FSR_keys_map.insert(std::unordered_map<std::string, int>::value_type
-          (std::string(fsr_key), fsr_id));
-    FSRs_to_keys.push_back(std::string(fsr_key));
-    FSRs_to_cells.push_back(cell_id);
-    FSRs_to_material_UIDs.push_back(material_uid);
-    FSRs_to_material_IDs.push_back(material_id);
-
-    delete [] fsr_key;
-  }
-
-  /* Set FSR vector maps */
-  _geometry->setFSRKeysMap(FSR_keys_map);
-  _geometry->setFSRsToCells(FSRs_to_cells);
-  _geometry->setFSRsToKeys(FSRs_to_keys);
-  _geometry->setFSRsToMaterialUIDs(FSRs_to_material_UIDs);
-  _geometry->setFSRsToMaterialIDs(FSRs_to_material_IDs);
-  
-  /* Read cmfd cell_fsrs vector of vectors from file */
-  if (cmfd->getOverlayMesh()){
-    std::vector< std::vector<int> > cell_fsrs;
-    int num_cells, fsr_id; 
-    ret = fread(&num_cells, sizeof(int), 1, in);
-
-    /* Loop over CMFD cells */
-    for (int cell=0; cell < num_cells; cell++){
-      std::vector<int> *fsrs = new std::vector<int>;
-      cell_fsrs.push_back(*fsrs);
-      ret = fread(&num_FSRs, sizeof(int), 1, in);
-
-      /* Loop over FRSs within cell */
-      for (int fsr = 0; fsr < num_FSRs; fsr++){
-        ret = fread(&fsr_id, sizeof(int), 1, in);
-        cell_fsrs.at(cell).push_back(fsr_id);
-      }
-    }        
-
-    /* Set CMFD cell_fsrs vector of vectors */
-    cmfd->setCellFSRs(cell_fsrs);
-  }
-
-  /* Inform the rest of the class methods that Tracks have been initialized */
-  if (ret)
-    _contains_tracks = true;
-
-  /* Close the Track file */
-  fclose(in);
-
-  return true;
-}

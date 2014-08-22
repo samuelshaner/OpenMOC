@@ -21,6 +21,8 @@
   #include "../src/TrackGenerator.h"
   #include "../src/Universe.h"
   #include "../src/Cmfd.h"
+  #include "../src/ModularTrackGenerator.h"
+  #include "../src/ModularCPUSolver.h"
 
   #define printf PySys_WriteStdout
 
@@ -307,6 +309,8 @@
 %include ../src/TrackGenerator.h
 %include ../src/Universe.h
 %include ../src/Cmfd.h
+%include ../src/ModularTrackGenerator.h
+%include ../src/ModularCPUSolver.h
 
 
 #define printf PySys_WriteStdout

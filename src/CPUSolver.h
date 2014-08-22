@@ -55,11 +55,11 @@ protected:
   /** OpenMP mutual exclusion locks for atomic surface current updates */
   omp_lock_t* _cmfd_surface_locks;
 
-  void initializeFluxArrays();
+  virtual void initializeFluxArrays();
   void initializeSourceArrays();
   void initializePolarQuadrature();
   void buildExpInterpTable();
-  void initializeFSRs();
+  virtual void initializeFSRs();
   void initializeCmfd();
 
   void zeroTrackFluxes();
@@ -93,7 +93,7 @@ protected:
                                     FP_PRECISION* track_flux);
   void addSourceToScalarFlux();
   void computeKeff();
-  void transportSweep();
+  virtual void transportSweep();
 
   /**
    * @brief Computes the exponential term in the transport equation for a

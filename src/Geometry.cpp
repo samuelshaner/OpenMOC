@@ -1165,6 +1165,8 @@ void Geometry::segmentize(Track* track) {
   /* Track starting Point coordinates and azimuthal angle */
   double x0 = track->getStart()->getX();
   double y0 = track->getStart()->getY();
+  double x1 = track->getEnd()->getX();
+  double y1 = track->getEnd()->getY();
   double phi = track->getPhi();
 
   /* Length of each segment */
@@ -1201,6 +1203,12 @@ void Geometry::segmentize(Track* track) {
     prev = curr;
     curr = findNextCell(&segment_end, phi);
 
+    /* if segment goes past endpoint, adjust to equal endpoint */
+    if (segment_end.getY() > y1){
+      segment_end.setX(x1);
+      segment_end.setY(y1);
+    }
+
     /* Checks to make sure that new Segment does not have the same start
      * and end Points */
     if (segment_start.getX() == segment_end.getX() &&
@@ -1227,7 +1235,7 @@ void Geometry::segmentize(Track* track) {
     for (int e=0; e < _num_groups; e++) {
       num_segments = ceil(segment_length * sigma_t[e] / 10.0);
       if (num_segments > min_num_segments)
-      min_num_segments = num_segments;
+        min_num_segments = num_segments;
     }
 
     /* "Cut up" Track segment into sub-segments such that the length of each
@@ -1286,6 +1294,11 @@ void Geometry::segmentize(Track* track) {
       track->addSegment(new_segment);
 
     }
+
+    /* check if segment has reached the track endpoint. This is 
+    * needed to modular ray tracing */
+    if (segment_end.getY() >= y1)
+      break;
   }
 
   log_printf(DEBUG, "Created %d segments for Track: %s",

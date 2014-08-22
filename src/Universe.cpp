@@ -970,7 +970,13 @@ void Lattice::printString() {
  * @return the Lattice cell index.
  */
 int Lattice::getLatticeCell(Point* point){
-  return (getLatY(point)*_num_x + getLatX(point));
+  int lat_x = getLatX(point);
+  int lat_y = getLatY(point);
+
+  if (lat_x == -1 || lat_y == -1)
+    return -1;
+  else
+    return (getLatY(point)*_num_x + getLatX(point));
 }
 
 

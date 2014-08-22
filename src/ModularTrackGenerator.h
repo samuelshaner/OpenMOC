@@ -19,7 +19,29 @@
 #include "Track.h"
 #include "Geometry.h"
 #include "TrackGenerator.h"
+#include <unordered_map>
 #endif
+
+
+/**
+ * @struct macro_track
+ * @brief A macro_track represents the first and last track of 
+ *        subtrack train.
+ */
+struct macro_track {
+
+  /** A pointer to the start and end track */
+  Track* _start;
+  Track* _end;
+
+};
+
+
+/** Indexing macro for the scalar flux in each FSR and energy group */
+#define curr_track(i,j) (_modular_track_map[&(_tracks[(i)][(j)])])
+
+/** Indexing macro for the scalar flux in each FSR and energy group */
+#define refl_track(i,j) (_modular_track_map[&(_tracks[_num_azim - (i) - 1][(j)])])
 
 
 /**
@@ -38,19 +60,36 @@ class ModularTrackGenerator : public TrackGenerator {
 private:
 
   /** Number of azimuthal angles in \f$ [0, \pi] \f$ */
-  int _num_cells;
   int _cx;
   int _cy;
-
-  vector<vector<vector<Track*> > > _modular_tracks;
-
-  void computeEndPoint(Point* start, Point* end,  const double phi,
-                       const double width, const double height);
+  Lattice* _lattice;
+  
+  std::vector< std::vector< std::vector<Track*> > > _modular_tracks;
+  
+  std::unordered_map<Track*, macro_track> _modular_track_map;
 
 public:
   ModularTrackGenerator(Geometry* geometry, int num_azim, double spacing);
   virtual ~ModularTrackGenerator();
 
+  int getNumX();
+  int getNumY();
+  void setNumX(int cx);
+  void setNumY(int cy);
+  void setLatticeStructure(int cx, int cy);
+  int getNumCells();
+  virtual void generateTracks();
+  void decomposeTracks();
+  void setEndPoint(Track* track, double dist);
+  int findNextCell(Point* point, double angle);
+  double nextCellDist(Point* point, double angle);
+  virtual void initializeBoundaryConditions();
+  virtual void segmentize();
+  virtual void retrieveSegmentCoords(double* coords, int num_segments);
+  virtual void initializeTrackFileDirectory();
+  virtual void retrieveTrackCoords(double* coords, int num_tracks);
+
+  std::vector< std::vector< std::vector<Track*> > > getModularTracks();
 };
 
 #endif /* MODULARTRACKGENERATOR_H_ */

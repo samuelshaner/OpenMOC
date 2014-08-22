@@ -30,7 +30,7 @@
  */
 class TrackGenerator {
 
-private:
+protected:
 
   /** Number of azimuthal angles in \f$ [0, \pi] \f$ */
   int _num_azim;
@@ -79,11 +79,11 @@ private:
   void computeEndPoint(Point* start, Point* end,  const double phi,
                        const double width, const double height);
 
-  void initializeTrackFileDirectory();
+  virtual void initializeTrackFileDirectory();
   void initializeTracks();
   void recalibrateTracksToOrigin();
-  void initializeBoundaryConditions();
-  void segmentize();
+  virtual void initializeBoundaryConditions();
+  virtual void segmentize();
   void dumpTracksToFile();
   bool readTracksFromFile();
 
@@ -109,9 +109,9 @@ public:
 
   /* Worker functions */
   bool containsTracks();
-  void retrieveTrackCoords(double* coords, int num_tracks);
-  void retrieveSegmentCoords(double* coords, int num_segments);
-  void generateTracks();
+  virtual void retrieveTrackCoords(double* coords, int num_tracks);
+  virtual void retrieveSegmentCoords(double* coords, int num_segments);
+  virtual void generateTracks();
 };
 
 #endif /* TRACKGENERATOR_H_ */

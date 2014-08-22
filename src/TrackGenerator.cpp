@@ -1,6 +1,4 @@
 #include "TrackGenerator.h"
-
-
 /**
  * @brief Constructor for the TrackGenerator assigns default values.
  * @param geometry a pointer to a Geometry object

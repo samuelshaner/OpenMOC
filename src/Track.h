@@ -100,7 +100,7 @@ private:
 
   /** A boolean to indicate whether to give the flux to the "forward" (false)
    *  or "reverse" (true) direction of the Track reflecting out of this one
-   *  along its "forward" direction for reflective boundary conditions. */
+   *  along its "reverse" direction for reflective boundary conditions. */
   bool _refl_out;
 
   /** A boolean to indicate whether the outgoing angular flux along this
@@ -112,6 +112,16 @@ private:
    *  Track's "reverse" direction should be zeroed out for vacuum boundary
    *  conditions. */
   bool  _bc_out;
+
+  /** A boolean to indicate whether the outgoing angular flux along this
+   *  Track's "forward" direction should be zeroed out for vacuum boundary
+   *  conditions. */
+  bool _on_boundary_in;
+
+  /** A boolean to indicate whether the outgoing angular flux along this
+   *  Track's "reverse" direction should be zeroed out for vacuum boundary
+   *  conditions. */
+  bool  _on_boundary_out;
 
 public:
   Track();
@@ -131,6 +141,9 @@ public:
   void setTrackInJ(int j);
   void setTrackOutI(int i);
   void setTrackOutJ(int j);
+  void setOnBoundaryOut(const bool on_boundary_out);
+  void setOnBoundaryIn(const bool on_boundary_in);
+
 
   int getUid();
   Point* getEnd();
@@ -150,6 +163,8 @@ public:
   bool isReflOut() const;
   bool getBCIn() const;
   bool getBCOut() const;
+  bool getOnBoundaryOut() const;
+  bool getOnBoundaryIn() const;
 
   bool contains(Point* point);
   void addSegment(segment* segment);
