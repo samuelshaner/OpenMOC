@@ -267,9 +267,9 @@ bool Track::getBCOut() const {
 
 
 /**
- * @brief Returns the boundary condition for the flux along the Track's
- *        "forward" direction.
- * @return vacuum (false) or reflective (true) reflective boundary conditions
+ * @brief Returns whether the track reaches a geometry boundary when tracking
+ *        in the "forward" direction.
+ * @return yes (true) or no (false)
  */
 bool Track::getOnBoundaryIn() const {
   return _on_boundary_in;
@@ -277,9 +277,9 @@ bool Track::getOnBoundaryIn() const {
 
 
 /**
- * @brief Returns the boundary condition for the flux along the Track's
- *        "reverse" direction.
- * @return vacuum (false) or reflective (true) reflective boundary conditions
+ * @brief Returns whether the track reaches a geometry boundary when tracking
+ *        in the "reverse" direction.
+ * @return yes (true) or no (false)
  */
 bool Track::getOnBoundaryOut() const {
   return _on_boundary_out;

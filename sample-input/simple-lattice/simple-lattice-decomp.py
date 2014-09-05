@@ -112,8 +112,10 @@ geometry.initializeFlatSourceRegions()
 log.py_printf('NORMAL', 'Initializing the track generator...')
 
 track_generator = ModularTrackGenerator(geometry, num_azim, track_spacing)
-track_generator.setLatticeStructure(4,4)
+track_generator.setLatticeStructure(1,1)
 track_generator.generateTracks()
+
+plotter.plot_segments(track_generator)
 
 ###############################################################################
 ###########################   Running a Simulation   ##########################

@@ -164,8 +164,8 @@ void ModularTrackGenerator::initializeTrackFileDirectory() {
   if (!stat(directory.str().c_str(), &st) == 0)
     mkdir(directory.str().c_str(), S_IRWXU);
 
-  if (_geometry->getCmfd()->getOverlayMesh()){
-    test_filename << directory.str() << "/tracks_"
+  if (_geometry->getCmfd() != NULL){
+    test_filename << directory.str() << "/"
                   <<  _num_azim*2.0 << "_angles_"
                   << _spacing << "_cm_spacing_cmfd_"
                   << _geometry->getCmfd()->getNumX() 
@@ -174,7 +174,7 @@ void ModularTrackGenerator::initializeTrackFileDirectory() {
                   << ".data";
     }
   else{
-    test_filename << directory.str() << "/tracks_"
+    test_filename << directory.str() << "/"
                   <<  _num_azim*2.0 << "_angles_"
                   << _spacing << "_cm_spacing_"
                   << "_decomp_" << _cx << "x" << _cy << ".data";
@@ -213,7 +213,6 @@ void ModularTrackGenerator::decomposeTracks() {
   int cell;
   double phi;
   double dist;
-
 
   /* initialize 3D vector of tracks */
   for (int cell = 0; cell < _cx*_cy; cell++){
@@ -737,7 +736,7 @@ void ModularTrackGenerator::retrieveSegmentCoords(double* coords, int num_segmen
     }
   }
 
-    return;
+  return;
 }
 
 

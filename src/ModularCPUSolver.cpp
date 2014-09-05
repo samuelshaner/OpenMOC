@@ -90,7 +90,6 @@ void ModularCPUSolver::initializeFSRs() {
   segment* curr_segment;
   segment* segments;
   FP_PRECISION volume;
-  CellBasic* cell;
   Material* material;
   Universe* univ_zero = _geometry->getUniverse(0);
   Track* track;
@@ -118,19 +117,16 @@ void ModularCPUSolver::initializeFSRs() {
   }
 
   /* Loop over all FSRs to extract FSR material pointers */
-  #pragma omp parallel for private(cell, material) schedule(guided)
+  #pragma omp parallel for private(material) schedule(guided)
   for (int r=0; r < _num_FSRs; r++) {
 
-    /* Get the Cell corresponding to this FSR from the geometry */
-    cell = _geometry->findCellContainingFSR(r);
-
-    /* Get the Cell's Material and assign it to the FSR */
-    material = _geometry->getMaterial(cell->getMaterial());
+    /* Assign the Material corresponding to this FSR */
+    material = _geometry->findMaterialContainingFSR(r);
     _FSR_materials[r] = material;
 
-    log_printf(DEBUG, "FSR ID = %d has Cell ID = %d and Material ID = %d "
-               "and volume = %f", r, cell->getId(),
-               _FSR_materials[r]->getUid(), _FSR_volumes[r]);
+    log_printf(DEBUG, "FSR ID = %d has Material ID = %d "
+               "and volume = %f", r, _FSR_materials[r]->getUid(), 
+               _FSR_volumes[r]);
   }
 
   /* Loop over all FSRs to initialize OpenMP locks */
@@ -165,7 +161,7 @@ void ModularCPUSolver::transportSweep() {
   /* Initialize flux in each FSr to zero */
   flattenFSRFluxes(0.0);
 
-  if (_cmfd->getOverlayMesh() && _cmfd->getUpdateFlux())
+  if (_cmfd != NULL && _cmfd->isFluxUpdateOn())
     zeroSurfaceCurrents();
 
   /* loop over black domain cells */

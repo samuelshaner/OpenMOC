@@ -884,13 +884,17 @@ int Lattice::getLatX(Point* point) {
 
   /* Check if the Point is on the Lattice boundaries and if so adjust
    * x Lattice cell indice */
-  if (fabs(dist_to_left) < ON_SURFACE_THRESH)
-    lat_x = 0;
-  else if (fabs(dist_to_left - _num_x*_width_x) < ON_SURFACE_THRESH)
-    lat_x = _num_x - 1;
-  else if (lat_x < 0 || lat_x > _num_x-1)
-    log_printf(ERROR, "Trying to get lattice x index for point that is "
-               "outside lattice bounds.");
+  //if (fabs(dist_to_left) < ON_SURFACE_THRESH)
+  //  lat_x = 0;
+  //else if (fabs(dist_to_left - _num_x*_width_x) < ON_SURFACE_THRESH)
+  //  lat_x = _num_x - 1;
+  //else if (lat_x < 0 || lat_x > _num_x-1)
+  //  lat_x = -1;
+
+  /* If point is outside the cell boundaries, return -1 */
+  if (point->getX() + _num_x*_width_x/2.0 - _offset.getX() < 0.0 || 
+      point->getX() + _num_x*_width_x/2.0 - _offset.getX() >= _num_x*_width_x)
+    lat_x = -1;
   
   return lat_x;
 }
@@ -912,13 +916,17 @@ int Lattice::getLatY(Point* point) {
 
   /* Check if the Point is on the Lattice boundaries and if so adjust
    * y Lattice cell indice */
-  if (fabs(dist_to_bottom) < ON_SURFACE_THRESH) 
-    lat_y = 0;
-  else if (fabs(dist_to_bottom - _num_y*_width_y) < ON_SURFACE_THRESH) 
-    lat_y = _num_y - 1;
-  else if (lat_y < 0 || lat_y > _num_y-1)
-    log_printf(ERROR, "Trying to get lattice y index for point that is "
-               "outside lattice bounds.");
+  //if (fabs(dist_to_bottom) < ON_SURFACE_THRESH) 
+  //  lat_y = 0;
+  //else if (fabs(dist_to_bottom - _num_y*_width_y) < ON_SURFACE_THRESH) 
+  //  lat_y = _num_y - 1;
+  //else if (lat_y < 0 || lat_y > _num_y-1)
+  //  lat_y = -1;
+
+  /* If point is outside the cell boundaries, return -1 */
+  if (point->getY() + _width_y*_num_y/2.0 - _offset.getY() < 0.0 || 
+      point->getY() + _width_y*_num_y/2.0 - _offset.getY() >= _num_y*_width_y) 
+    lat_y = -1;
 
   return lat_y;
 }
@@ -976,7 +984,7 @@ int Lattice::getLatticeCell(Point* point){
   if (lat_x == -1 || lat_y == -1)
     return -1;
   else
-    return (getLatY(point)*_num_x + getLatX(point));
+    return (lat_y*_num_x + lat_x);
 }
 
 

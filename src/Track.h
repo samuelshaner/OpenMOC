@@ -114,13 +114,11 @@ private:
   bool  _bc_out;
 
   /** A boolean to indicate whether the outgoing angular flux along this
-   *  Track's "forward" direction should be zeroed out for vacuum boundary
-   *  conditions. */
+   *  Track's "forward" direction is on a geometry boundary */
   bool _on_boundary_in;
 
   /** A boolean to indicate whether the outgoing angular flux along this
-   *  Track's "reverse" direction should be zeroed out for vacuum boundary
-   *  conditions. */
+   *  Track's "reverse" direction is on a geometry boundary */
   bool  _on_boundary_out;
 
 public:
