@@ -84,7 +84,7 @@ protected:
   void recalibrateTracksToOrigin();
   virtual void initializeBoundaryConditions();
   virtual void segmentize();
-  void dumpTracksToFile();
+  virtual void dumpTracksToFile();
   bool readTracksFromFile();
 
 public:

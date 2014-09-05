@@ -167,7 +167,61 @@ void ModularCPUSolver::transportSweep() {
   /* loop over black domain cells */
   #pragma omp parallel for private(curr_track, track_id, num_segments, \
     curr_segment, segments, track_flux, cell) schedule(guided)
-  for (int y = 0; y < cy; y++){
+  for (int y = 0; y < cy; y += 2){
+    for (int x = y % 2; x < cx; x += 2){
+      cell = y*cx+x;
+
+      /* Loop over azimuthal angles */
+      for (int i=0; i < _num_azim; i++) {
+
+        std::vector<Track*>::iterator iter;
+
+        /* iterate over tracks in this cell and azimuthal angle */
+        for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
+
+          /* Use local array accumulator to prevent false sharing*/
+          FP_PRECISION* thread_fsr_flux;
+          thread_fsr_flux = new FP_PRECISION[_num_groups];
+
+          /* Initialize local pointers to important data structures */
+          curr_track = *iter;
+          num_segments = curr_track->getNumSegments();
+          segments = curr_track->getSegments();
+          track_id = curr_track->getUid();
+          track_flux = &_boundary_flux(track_id,0,0,0);
+
+          /* Loop over each Track segment in forward direction */
+          for (int s=0; s < num_segments; s++) {
+            curr_segment = &segments[s];
+            scalarFluxTally(curr_segment, i, track_flux,
+                            thread_fsr_flux,true);
+          }
+
+          /* Transfer boundary angular flux to outgoing Track */
+          transferBoundaryFluxModular(track_id, i, true, track_flux, curr_track);
+          
+          /* Loop over each Track segment in reverse direction */
+          track_flux += _polar_times_groups;
+          
+          for (int s=num_segments-1; s > -1; s--) {
+              curr_segment = &segments[s];
+              scalarFluxTally(curr_segment, i, track_flux,
+                              thread_fsr_flux,false);
+          }
+          delete thread_fsr_flux;
+
+          /* Transfer boundary angular flux to outgoing Track */
+          transferBoundaryFluxModular(track_id, i, false, track_flux, curr_track);
+
+        }
+      }
+    }
+  }
+
+  /* loop over green domain cells */
+  #pragma omp parallel for private(curr_track, track_id, num_segments, \
+    curr_segment, segments, track_flux, cell) schedule(guided)
+  for (int y = 1; y < cy; y += 2){
     for (int x = y % 2; x < cx; x += 2){
       cell = y*cx+x;
 
@@ -221,7 +275,60 @@ void ModularCPUSolver::transportSweep() {
   /* loop over red domain cells */
   #pragma omp parallel for private(curr_track, track_id, num_segments, \
     curr_segment, segments, track_flux, cell) schedule(guided)
-  for (int y = 0; y < cy; y++){
+  for (int y = 0; y < cy; y += 2){
+    for (int x = 1 - y % 2; x < cx; x += 2){
+      cell = y*cx+x;
+      
+      /* Loop over azimuthal angles */
+      for (int i=0; i < _num_azim; i++) {
+
+        std::vector<Track*>::iterator iter;
+
+        /* iterate over tracks in this cell and azimuthal angle */
+        for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
+
+          /* Use local array accumulator to prevent false sharing*/
+          FP_PRECISION* thread_fsr_flux;
+          thread_fsr_flux = new FP_PRECISION[_num_groups];
+
+          /* Initialize local pointers to important data structures */
+          curr_track = *iter;
+          num_segments = curr_track->getNumSegments();
+          segments = curr_track->getSegments();
+          track_id = curr_track->getUid();
+          track_flux = &_boundary_flux(track_id,0,0,0);
+
+          /* Loop over each Track segment in forward direction */
+          for (int s=0; s < num_segments; s++) {
+            curr_segment = &segments[s];
+            scalarFluxTally(curr_segment, i, track_flux,
+                            thread_fsr_flux,true);
+          }
+
+          /* Transfer boundary angular flux to outgoing Track */
+          transferBoundaryFluxModular(track_id, i, true, track_flux, curr_track);
+          
+          /* Loop over each Track segment in reverse direction */
+          track_flux += _polar_times_groups;
+          
+          for (int s=num_segments-1; s > -1; s--) {
+              curr_segment = &segments[s];
+              scalarFluxTally(curr_segment, i, track_flux,
+                              thread_fsr_flux,false);
+          }
+          delete thread_fsr_flux;
+          
+          /* Transfer boundary angular flux to outgoing Track */
+          transferBoundaryFluxModular(track_id, i, false, track_flux, curr_track);
+        }
+      }
+    }
+  }
+
+  /* loop over blue domain cells */
+  #pragma omp parallel for private(curr_track, track_id, num_segments, \
+    curr_segment, segments, track_flux, cell) schedule(guided)
+  for (int y = 1; y < cy; y += 2){
     for (int x = 1 - y % 2; x < cx; x += 2){
       cell = y*cx+x;
       

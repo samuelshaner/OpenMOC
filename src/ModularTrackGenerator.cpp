@@ -789,3 +789,183 @@ void ModularTrackGenerator::retrieveTrackCoords(double* coords, int num_tracks) 
 }
 
 
+/**
+ * @brief Find the domain cell that a LocalCoords object is in. 
+ * @param The coords being evaluated.
+ * @return The Domain cell ID.
+ */
+int ModularTrackGenerator::findDomainCell(LocalCoords* coords){
+  Point* point = coords->getHighestLevel()->getPoint();
+  return _lattice->getLatticeCell(point);
+}
+
+
+/**
+ * @brief Writes all Track and segment data to a "*.tracks" binary file.
+ * @details Storing Tracks in a binary file saves time by eliminating ray
+ *          tracing for Track segmentation in commonly simulated geometries.
+ */
+void ModularTrackGenerator::dumpTracksToFile() {
+
+  log_printf(NORMAL, "Dumping tracks to file...");
+
+  if (!_contains_tracks)
+    log_printf(ERROR, "Unable to dump Tracks to a file since no Tracks have "
+      "been generated for %d azimuthal angles and %f track spacing",
+      _num_azim, _spacing);
+
+  FILE* out;
+  out = fopen(_tracks_filename.c_str(), "w");
+
+  /* Get a string representation of the Geometry's attributes. This is used to
+   * check whether or not ray tracing has been performed for this Geometry */
+  std::string geometry_to_string = _geometry->toString();
+  int string_length = geometry_to_string.length() + 1;
+
+  /* Write geometry metadata to the Track file */
+  fwrite(&string_length, sizeof(int), 1, out);
+  fwrite(geometry_to_string.c_str(), sizeof(char)*string_length, 1, out);
+
+  /* Write ray tracing metadata to the Track file */
+  fwrite(&_num_azim, sizeof(int), 1, out);
+  fwrite(&_spacing, sizeof(double), 1, out);
+  fwrite(_num_tracks, sizeof(int), _num_azim, out);
+  fwrite(_num_x, sizeof(int), _num_azim, out);
+  fwrite(_num_y, sizeof(int), _num_azim, out);
+
+  /* Write the azimuthal angle quadrature weights to the Track file */
+  double* azim_weights = new double[_num_azim];
+  for (int i=0; i < _num_azim; i++)
+    azim_weights[i] = _azim_weights[i];
+  fwrite(azim_weights, sizeof(double), _num_azim, out);
+  free(azim_weights);
+
+  Track* curr_track;
+  double x0, y0, x1, y1;
+  double phi;
+  int azim_angle_index;
+  int num_segments;
+  std::vector<segment*> _segments;
+  Cmfd* cmfd = _geometry->getCmfd();
+
+  segment* curr_segment;
+  double length;
+  int material_id;
+  int region_id;
+  int cmfd_surface_fwd;
+  int cmfd_surface_bwd;
+
+  /* Loop over all Tracks */
+  for (int i=0; i < _num_azim; i++) {
+    for (int j=0; j < _num_tracks[i]; j++) {
+
+      /* Get data for this Track */
+      curr_track = &_tracks[i][j];
+      x0 = curr_track->getStart()->getX();
+      y0 = curr_track->getStart()->getY();
+      x1 = curr_track->getEnd()->getX();
+      y1 = curr_track->getEnd()->getY();
+      phi = curr_track->getPhi();
+      azim_angle_index = curr_track->getAzimAngleIndex();
+      num_segments = curr_track->getNumSegments();
+
+      /* Write data for this Track to the Track file */
+      fwrite(&x0, sizeof(double), 1, out);
+      fwrite(&y0, sizeof(double), 1, out);
+      fwrite(&x1, sizeof(double), 1, out);
+      fwrite(&y1, sizeof(double), 1, out);
+      fwrite(&phi, sizeof(double), 1, out);
+      fwrite(&azim_angle_index, sizeof(int), 1, out);
+      fwrite(&num_segments, sizeof(int), 1, out);
+
+      /* Loop over all segments for this Track */
+      for (int s=0; s < num_segments; s++) {
+
+        /* Get data for this segment */
+        curr_segment = curr_track->getSegment(s);
+        length = curr_segment->_length;
+        material_id = curr_segment->_material->getId();
+        region_id = curr_segment->_region_id;
+
+        /* Write data for this segment to the Track file */
+        fwrite(&length, sizeof(double), 1, out);
+        fwrite(&material_id, sizeof(int), 1, out);
+        fwrite(&region_id, sizeof(int), 1, out);
+
+        /* Write CMFD-related data for the Track if needed */
+        if (cmfd != NULL){
+          cmfd_surface_fwd = curr_segment->_cmfd_surface_fwd;
+          cmfd_surface_bwd = curr_segment->_cmfd_surface_bwd;
+          fwrite(&cmfd_surface_fwd, sizeof(int), 1, out);
+          fwrite(&cmfd_surface_bwd, sizeof(int), 1, out);
+        }
+      }
+    }      
+  }
+
+  /* Get FSR vector maps */
+  std::map<std::size_t, fsr_data> FSR_keys_map = _geometry->getFSRKeysMap();
+  std::map<std::size_t, fsr_data>::iterator iter;
+  std::vector<std::size_t> FSRs_to_keys = _geometry->getFSRsToKeys();
+  std::vector<int> FSRs_to_material_IDs = _geometry->getFSRsToMaterials();
+  std::size_t fsr_key;
+  int fsr_id;
+  int fsr_counter = 0;
+  double x, y;
+
+  /* Write number of FSRs */
+  int num_FSRs = _geometry->getNumFSRs();
+  fwrite(&num_FSRs, sizeof(int), 1, out);
+
+  /* Write FSR vector maps to file */
+  for (iter = FSR_keys_map.begin(); iter != FSR_keys_map.end(); ++iter){
+
+    /* Write data to file from FSR_keys_map */
+    fsr_key = iter->first;
+    fsr_id = iter->second._fsr_id;
+    x = iter->second._point->getX();
+    y = iter->second._point->getY();
+    fwrite(&fsr_key, sizeof(std::size_t), 1, out);
+    fwrite(&fsr_id, sizeof(int), 1, out);
+    fwrite(&x, sizeof(double), 1, out);
+    fwrite(&y, sizeof(double), 1, out);
+    
+    /* Write data to file from FSRs_to_material_IDs */
+    fwrite(&(FSRs_to_material_IDs.at(fsr_counter)), sizeof(int), 1, out);
+
+    /* Write data to file from FSRs_to_keys */
+    fwrite(&(FSRs_to_keys.at(fsr_counter)), sizeof(std::size_t), 1, out);
+
+    /* Increment FSR ID counter */
+    fsr_counter++;
+  }
+
+  /* Write cmfd_fsrs vector of vectors to file */
+  if (cmfd != NULL){
+    std::vector< std::vector<int> > cell_fsrs = cmfd->getCellFSRs();
+    std::vector<int>::iterator iter;
+    int num_cells = cmfd->getNumCells();
+    fwrite(&num_cells, sizeof(int), 1, out);
+
+    /* Loop over CMFD cells */
+    for (int cell=0; cell < num_cells; cell++){
+      num_FSRs = cell_fsrs.at(cell).size(); 
+      fwrite(&num_FSRs, sizeof(int), 1, out);
+
+      /* Loop over FSRs within cell */
+      for (iter = cell_fsrs.at(cell).begin(); iter != cell_fsrs.at(cell).end();
+          ++iter)
+        fwrite(&(*iter), sizeof(int), 1, out);
+    }        
+  }   
+   
+  /* Close the Track file */
+  fclose(out);
+  
+  /* Inform other the TrackGenerator::generateTracks() method that it may
+   * import ray tracing data from this file if it is called and the ray
+   * tracing parameters have not changed */
+  _use_input_file = true;
+
+  return;
+}

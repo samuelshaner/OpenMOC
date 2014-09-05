@@ -342,8 +342,13 @@ geometry.initializeFlatSourceRegions()
 log.py_printf('NORMAL', 'Initializing the track generator...')
 
 track_generator = ModularTrackGenerator(geometry, num_azim, track_spacing)
-track_generator.setLatticeStructure(1,1)
+track_generator.setLatticeStructure(4,4)
 track_generator.generateTracks()
+
+#plotter.plot_domain_cells(geometry, track_generator, gridsize=500)
+#plotter.plot_materials(geometry, gridsize=500)
+#plotter.plot_flat_source_regions(geometry, gridsize=500)
+#plotter.plot_cmfd_cells(geometry, cmfd, gridsize=500)
 
 ###############################################################################
 ###########################   Running a Simulation   ##########################

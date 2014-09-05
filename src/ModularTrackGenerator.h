@@ -59,7 +59,6 @@ class ModularTrackGenerator : public TrackGenerator {
 
 private:
 
-  /** Number of azimuthal angles in \f$ [0, \pi] \f$ */
   int _cx;
   int _cy;
   Lattice* _lattice;
@@ -85,9 +84,11 @@ public:
   double nextCellDist(Point* point, double angle);
   virtual void initializeBoundaryConditions();
   virtual void segmentize();
+  virtual void dumpTracksToFile();
   virtual void retrieveSegmentCoords(double* coords, int num_segments);
   virtual void initializeTrackFileDirectory();
   virtual void retrieveTrackCoords(double* coords, int num_tracks);
+  int findDomainCell(LocalCoords* coords);
 
   std::vector< std::vector< std::vector<Track*> > > getModularTracks();
 };

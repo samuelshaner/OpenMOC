@@ -781,3 +781,98 @@ def plot_fission_rates(geometry, solver, gridsize=250):
   fig.savefig(filename, bbox_inches='tight')
 
 
+##
+# @brief This method takes in a Geometry and Cmfd object and plots a 
+#        color-coded 2D surface plot representing the CMFD cells in a geometry.
+# @details The Geometry object must be initialized with Materials, Cells,
+#          Universes and Lattices before being passed into this method. 
+#          Plotting the CMFD cells requires that segments must have been
+#          created for the geometry and FSR IDs assigned to regions. A user
+#          may invoke this function from an OpenMOC Python file as follows:
+#
+# @code
+#         openmoc.plotter.plot_cmfd_cells(geometry, cmfd)
+# @endcode
+#
+# @param geometry a geometry object which has been initialized with Materials,
+#        Cells, Universes and Lattices. Segments must have been created or 
+#        extracted from a file.
+# @param cmfd a cmfd object which has been used with the geometry in 
+#        generating segments. The cmfd object must have the _overlay_mesh
+#        flag set to true; otherwise, the map linking FSR IDs to CMFD cells
+#        would not have been created.
+# @param gridsize an optional number of grid cells for the plot
+def plot_domain_cells(geometry, modular_track_generator, gridsize=250):
+
+  global subdirectory
+
+  directory = get_output_directory() + subdirectory
+
+  # Make directory if it does not exist
+  if not os.path.exists(directory):
+    os.makedirs(directory)
+
+  # Error checking
+  if not 'Geometry' in str(type(geometry)):
+    py_printf('ERROR', 'Unable to plot the domain cells since ' + \
+              'input was not a geometry class object')
+
+  if not 'ModularTrackGenerator' in str(type(modular_track_generator)):
+    py_printf('ERROR', 'Unable to plot the domain cells since ' + \
+              'input was not a ModularTrackGenerator class object')
+  
+  if not isinstance(gridsize, int):
+    py_printf('ERROR', 'Unable to plot the domain cells since ' + \
+              'since the gridsize %s is not an integer', str(gridsize))
+
+  if gridsize <= 0:
+    py_printf('Error', 'Unable to plot the domain cells ' + \
+              'with a negative gridsize (%d)', gridsize)
+
+  py_printf('NORMAL', 'Plotting the domain cells...')
+
+  # Get the number of flat source regions
+  num_cells = modular_track_generator.getNumCells()
+
+  # Create array of equally spaced randomized floats as a color map for plots
+  # Seed the NumPy random number generator to ensure reproducible color maps
+  numpy.random.seed(1)
+  color_map = np.linspace(0., 1., num_cells, endpoint=False)
+  numpy.random.shuffle(color_map)
+
+  # Initialize a NumPy array for the surface colors
+  surface = numpy.zeros((gridsize, gridsize))
+
+  # Retrieve the bounding box for the Geometry
+  xmin = geometry.getXMin() + TINY_MOVE
+  xmax = geometry.getXMax() - TINY_MOVE
+  ymin = geometry.getYMin() + TINY_MOVE
+  ymax = geometry.getYMax() - TINY_MOVE
+
+  # Initialize numpy arrays for the grid points
+  xcoords = np.linspace(xmin, xmax, gridsize)
+  ycoords = np.linspace(ymin, ymax, gridsize)
+
+  # Find the domain cell ID for each grid point
+  for i in range(gridsize):
+    for j in range(gridsize):
+
+      x = xcoords[i]
+      y = ycoords[j]
+
+      coords = LocalCoords(x, y)
+      coords.setUniverse(0)
+      geometry.findCellContainingCoords(coords)
+      domain_id = modular_track_generator.findDomainCell(coords)
+      surface[j][i] = color_map[domain_id % num_cells]
+
+  # Flip the surface vertically to align NumPy row/column indices with the
+  # orientation expected by the user
+  surface = np.flipud(surface)
+
+  # Plot a 2D color map of the domain cells
+  fig = plt.figure()
+  plt.imshow(surface, extent=[xmin, xmax, ymin, ymax])
+  plt.title('Domain cells')
+  filename = directory + 'domain-cells.png'
+  fig.savefig(filename, bbox_inches='tight')
