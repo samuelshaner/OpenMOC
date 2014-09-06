@@ -1203,12 +1203,6 @@ void Geometry::segmentize(Track* track) {
     prev = curr;
     curr = findNextCell(&segment_end, phi);
 
-    /* if segment goes past endpoint, adjust to equal endpoint */
-    if (segment_end.getY() > y1){
-      segment_end.setX(x1);
-      segment_end.setY(y1);
-    }
-
     /* Checks to make sure that new Segment does not have the same start
      * and end Points */
     if (segment_start.getX() == segment_end.getX() &&

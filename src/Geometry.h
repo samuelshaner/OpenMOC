@@ -20,6 +20,7 @@
 #include <sstream>
 #include <string>
 #include <omp.h>
+#include <functional>
 #endif
 
 /**

@@ -158,7 +158,7 @@ void ModularCPUSolver::transportSweep() {
   int cell;
   log_printf(DEBUG, "Transport sweep with %d OpenMP threads", _num_threads);
 
-  /* Initialize flux in each FSr to zero */
+  /* Initialize flux in each FSR to zero */
   flattenFSRFluxes(0.0);
 
   if (_cmfd != NULL && _cmfd->isFluxUpdateOn())
@@ -202,7 +202,7 @@ void ModularCPUSolver::transportSweep() {
           
           /* Loop over each Track segment in reverse direction */
           track_flux += _polar_times_groups;
-          
+
           for (int s=num_segments-1; s > -1; s--) {
               curr_segment = &segments[s];
               scalarFluxTally(curr_segment, i, track_flux,
