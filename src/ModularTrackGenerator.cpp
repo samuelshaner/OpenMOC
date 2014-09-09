@@ -616,6 +616,7 @@ void ModularTrackGenerator::segmentize() {
 
   Track* track;
   std::vector<Track*>::iterator iter;
+  int num_segments;
 
   if (_num_segments != NULL)
     delete [] _num_segments;
@@ -627,8 +628,8 @@ void ModularTrackGenerator::segmentize() {
     log_printf(NORMAL, "segmenting tracks...");
 
     /* Loop over all Tracks */
-    #pragma omp parallel for private(iter, track)
     for (int cell = 0; cell < _cx*_cy; cell++){
+      log_printf(NORMAL, "segmenting cell: %i", cell);
       for (int i=0; i < _num_azim; i++) {
         for (iter = _modular_tracks.at(cell).at(i).begin(); 
              iter != _modular_tracks.at(cell).at(i).end(); ++iter){

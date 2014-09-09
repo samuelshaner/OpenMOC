@@ -121,7 +121,7 @@ void ModularCPUSolver::initializeFSRs() {
   for (int r=0; r < _num_FSRs; r++) {
 
     /* Assign the Material corresponding to this FSR */
-    material = _geometry->findMaterialContainingFSR(r);
+    material = _geometry->findFSRMaterial(r);
     _FSR_materials[r] = material;
 
     log_printf(DEBUG, "FSR ID = %d has Material ID = %d "

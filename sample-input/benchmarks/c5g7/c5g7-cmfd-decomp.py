@@ -320,6 +320,7 @@ log.py_printf('NORMAL', 'Creating Cmfd mesh...')
 cmfd = Cmfd()
 cmfd.setLatticeStructure(51,51)
 cmfd.setGroupStructure([1,4,8])
+cmfd.setSORRelaxationFactor(1.5)
 
 ###############################################################################
 ##########################   Creating the Geometry   ##########################
@@ -327,7 +328,8 @@ cmfd.setGroupStructure([1,4,8])
 
 log.py_printf('NORMAL', 'Creating geometry...')
 
-geometry = Geometry(cmfd)
+geometry = Geometry()
+geometry.setCmfd(cmfd)
 for material in materials.values(): geometry.addMaterial(material)
 for cell in cells: geometry.addCell(cell)
 for lattice in lattices: geometry.addLattice(lattice)
@@ -341,7 +343,7 @@ geometry.initializeFlatSourceRegions()
 log.py_printf('NORMAL', 'Initializing the track generator...')
 
 track_generator = ModularTrackGenerator(geometry, num_azim, track_spacing)
-track_generator.setLatticeStructure(1,1)
+track_generator.setLatticeStructure(3,3)
 track_generator.generateTracks()
 
 #plotter.plot_domain_cells(geometry, track_generator, gridsize=500)

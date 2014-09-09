@@ -4,7 +4,7 @@
 /**
  * @brief Constructor initializes an empty Geometry.
  */
-Geometry::Geometry(Cmfd* cmfd) {
+Geometry::Geometry() {
 
   /* Initializing the corners of the bounding box encapsulating
    * the Geometry to be infinite  */
@@ -26,11 +26,7 @@ Geometry::Geometry(Cmfd* cmfd) {
   _num_groups = 0;
 
   /* assign cmfd mesh to _cmfd variable */
-  _cmfd = cmfd;
-
-  /* initialize _num_FSRs lock */
-  _num_FSRs_lock = new omp_lock_t;
-  omp_init_lock(_num_FSRs_lock);
+  _cmfd = NULL;
 }
 
 
@@ -402,15 +398,6 @@ Lattice* Geometry::getLattice(int id) {
   }
 
   return lattice;
-}
-
-
-/**
- * @brief Returns a pointer to the CMFD object.
- * @return A pointer to the CMFD object
- */
-Cmfd* Geometry::getCmfd(){
-  return _cmfd;
 }
 
 
@@ -842,7 +829,7 @@ CellBasic* Geometry::findFirstCell(LocalCoords* coords, double angle) {
  * @param fsr_id a FSR id
  * @return a pointer to the Material that this FSR is in
  */
-Material* Geometry::findMaterialContainingFSR(int fsr_id) {
+Material* Geometry::findFSRMaterial(int fsr_id) {
   return getMaterial(_FSRs_to_material_IDs.at(fsr_id));
 }
 
@@ -940,18 +927,19 @@ int Geometry::findFSRId(LocalCoords* coords) {
   LocalCoords* curr = coords;
   curr = coords->getLowestLevel();
   std::hash<std::string> key_hash_function;
+  std::string fsr_key;
 
   /* Generate unique FSR key */
-  std::size_t fsr_key_hash = key_hash_function(getFSRKey(coords));
-
+  fsr_key = getFSRKey(coords);
+  std::size_t fsr_key_hash = key_hash_function(fsr_key);
+  
   /* If FSR has not been encountered, update FSR maps and vectors */
-  if (_FSR_keys_map.find(fsr_key_hash) == _FSR_keys_map.end()){
+  if (!_FSR_keys_map.count(fsr_key_hash)){
       
     /* Get the cell that contains coords */
     CellBasic* cell = findCellContainingCoords(curr);
-    
-    /* Add FSR information to FSR key map and FSR_to vectors */
-    omp_set_lock(_num_FSRs_lock);
+
+    /* Create a new fsr entry into _FSR_keys_map */
     fsr_id = _num_FSRs;
     fsr_data* fsr = new fsr_data;
     fsr->_fsr_id = fsr_id;
@@ -959,23 +947,23 @@ int Geometry::findFSRId(LocalCoords* coords) {
     point->setCoords(coords->getHighestLevel()->getX(), 
                      coords->getHighestLevel()->getY());
     fsr->_point = point;
-    _FSR_keys_map[fsr_key_hash] = *fsr;
+    _FSR_keys_map.insert(std::map<std::size_t, fsr_data>::value_type(fsr_key_hash, *fsr));
     _FSRs_to_keys.push_back(fsr_key_hash);
     _FSRs_to_material_IDs.push_back(cell->getMaterial());
-
+    
     /* If CMFD acceleration is on, add FSR to CMFD cell */
     if (_cmfd != NULL){
       int cmfd_cell = _cmfd->findCmfdCell(coords->getHighestLevel());
       _cmfd->addFSRToCell(cmfd_cell, fsr_id);
     }
-
+      
     /* Increment FSR counter and unset lock */
     _num_FSRs++;
-    omp_unset_lock(_num_FSRs_lock);
   }
   /* If FSR has already been encountered, get the fsr id from map */
-  else
+  else{      
     fsr_id = _FSR_keys_map.at(fsr_key_hash)._fsr_id;
+  }
   
   return fsr_id;
 }
@@ -998,7 +986,7 @@ int Geometry::getFSRId(LocalCoords* coords) {
     fsr_id = _FSR_keys_map.at(key_hash_function(fsr_key))._fsr_id;
   }
   catch(std::exception &e) {
-    log_printf(ERROR, "Could not find FSR ID with key: %s. Try creating "
+    log_printf(ERROR, "Could not get FSR ID with key: %s. Try creating "
                "geometry with finer track laydown. "
                "Backtrace:%s", fsr_key.c_str(), e.what());
   }
@@ -1532,4 +1520,22 @@ void Geometry::setFSRsToKeys(std::vector<std::size_t> FSRs_to_keys){
  */
 void Geometry::setFSRsToMaterials(std::vector<int> FSRs_to_material_IDs){
   _FSRs_to_material_IDs = FSRs_to_material_IDs;
+}
+
+
+/**
+ * @brief Sets the CMFD object to be used for acceleration.
+ * @param Pointer to cmfd object
+ */
+void Geometry::setCmfd(Cmfd* cmfd){
+  _cmfd = cmfd;
+}
+
+
+/**
+ * @brief Returns a pointer to the CMFD object.
+ * @return A pointer to the CMFD object
+ */
+Cmfd* Geometry::getCmfd(){
+  return _cmfd;
 }

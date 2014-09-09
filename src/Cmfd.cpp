@@ -12,10 +12,6 @@
  */
 Cmfd::Cmfd() {
 
-  /* Initialize Geometry and Mesh-related attribute */
-  _quad = NULL;
-  _SOR_factor = 1.0;
-
   /* Global variables used in solving CMFD problem */
   _source_convergence_threshold = 1E-7;
   _num_x = 1;
@@ -29,6 +25,7 @@ Cmfd::Cmfd() {
   _SOR_factor = 1.0;
   _num_FSRs = 0;
   _relax_factor = 0.6;
+  _quad = NULL;
 
   /* Energy group problem parameters */
   _num_moc_groups = 0;
@@ -522,7 +519,7 @@ FP_PRECISION Cmfd::computeKeff(){
   int row;
 
   /* Convergence criteria on L2 norm of flux for linear solve */
-  FP_PRECISION linear_solve_convergence_criteria = 1E-7;
+  FP_PRECISION linear_solve_convergence_criteria = 1E-8;
   
   /* Compute the cross sections and surface diffusion coefficients */
   computeXS();
@@ -558,14 +555,12 @@ FP_PRECISION Cmfd::computeKeff(){
     /* Scale the old source by keff */
     vector_scale(_old_source, _k_eff, _num_x*_num_y*_num_cmfd_groups);
     
-    /* Compute the L2 norm of source error */
+    /* Compute the RMS error in the fission source */
     residual = 0.0;    
     for (int i = 0; i < _num_x*_num_y*_num_cmfd_groups; i++){
       if (_new_source[i] != 0.0)
         residual += pow((_new_source[i] - _old_source[i]) / _new_source[i], 2);
     }
-
-    /* Compute the average value of the residual */
     residual = sqrt(residual / (_num_x*_num_y*_num_cmfd_groups));
 
     /* Normalize the new source to have an average value of 1.0 */
@@ -573,8 +568,8 @@ FP_PRECISION Cmfd::computeKeff(){
     vector_scale(_new_source, scale_val, _num_x*_num_y*_num_cmfd_groups);
     vector_copy(_new_source, _old_source, _num_x*_num_y*_num_cmfd_groups);
     
-    log_printf(INFO, "CMFD iter: %i, keff: %f, error: %f", 
-               iter, _k_eff, residual);
+    log_printf(NORMAL, "CMFD iter: %i, keff: %f, error: %f", 
+               iter+1, _k_eff, residual);
     
     /* Check for convergence */
     if (residual < _source_convergence_threshold)
@@ -607,10 +602,14 @@ void Cmfd::linearSolve(FP_PRECISION** mat, FP_PRECISION* vec_x,
   FP_PRECISION val;
   int iter = 0;
 
+  /* get initial source */
+  matrix_multiplication(_M, vec_x, _new_source, _num_x*_num_y,
+                        _num_cmfd_groups);
+
   while (residual > conv){
 
     /* Pass new flux to old flux */
-    vector_copy(vec_x, _flux_temp, _num_x*_num_y*_num_cmfd_groups);
+    vector_copy(_new_source, _flux_temp, _num_x*_num_y*_num_cmfd_groups);
 
     /* Iteration over red cells */
     #pragma omp parallel for private(row, val, cell)
@@ -676,7 +675,7 @@ void Cmfd::linearSolve(FP_PRECISION** mat, FP_PRECISION* vec_x,
 
         for (int g = 0; g < _num_cmfd_groups; g++){
 
-          row = (y*_num_x+x)*_num_cmfd_groups + g;
+          row = cell*_num_cmfd_groups + g;
           val = 0.0;
 
           /* Previous flux term */
@@ -722,13 +721,17 @@ void Cmfd::linearSolve(FP_PRECISION** mat, FP_PRECISION* vec_x,
       }
     }
 
-    /* Compute the average residual */
-    residual = 0.0;
+    /* Compute the new fission source */
+    matrix_multiplication(_M, vec_x, _new_source, _num_x*_num_y,
+        _num_cmfd_groups);
+
+    /* Compute the RMS error in the fission source */
+    residual = 0.0;    
     for (int i = 0; i < _num_x*_num_y*_num_cmfd_groups; i++){
-      if (vec_x[i] != 0.0)
-        residual += pow((vec_x[i] - _flux_temp[i]) / vec_x[i], 2);
+      if (_new_source[i] != 0.0)
+        residual += pow((_new_source[i] - _flux_temp[i]) / _new_source[i], 2);
     }
-    residual = pow(residual, 0.5) / (_num_x*_num_y*_num_cmfd_groups);
+    residual = sqrt(residual / (_num_x*_num_y*_num_cmfd_groups));
 
     /* Increment the interations counter */
     iter++;
