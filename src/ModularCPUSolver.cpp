@@ -14,6 +14,7 @@
 ModularCPUSolver::ModularCPUSolver(Geometry* geometry, TrackGenerator* track_generator) 
     : CPUSolver(geometry, track_generator) {
 
+  _half_update = true;
 }
 
 
@@ -164,221 +165,202 @@ void ModularCPUSolver::transportSweep() {
   if (_cmfd != NULL && _cmfd->isFluxUpdateOn())
     zeroSurfaceCurrents();
 
-  /* loop over black domain cells */
-  #pragma omp parallel for private(curr_track, track_id, num_segments, \
-    curr_segment, segments, track_flux, cell) schedule(guided)
-  for (int y = 0; y < cy; y += 2){
-    for (int x = y % 2; x < cx; x += 2){
-      cell = y*cx+x;
+  /* Gauss Seidel solver */
+  if (_half_update){
+    /* loop over domain cells by color */
+    for (int color = 0; color < 4; color++){
+      #pragma omp parallel for private(curr_track, track_id, num_segments, \
+        curr_segment, segments, track_flux, cell) schedule(guided)
+      for (int y = color % 2; y < cy; y += 2){
+        for (int x = 1 - abs((3 - 2*color) / 2); x < cx; x += 2){
+          cell = y*cx+x;
 
-      /* Loop over azimuthal angles */
-      for (int i=0; i < _num_azim; i++) {
+          /* Loop over azimuthal angles */
+          for (int i=0; i < _num_azim; i++) {
 
-        std::vector<Track*>::iterator iter;
+            std::vector<Track*>::iterator iter;
 
-        /* iterate over tracks in this cell and azimuthal angle */
-        for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
+            /* iterate over tracks in this cell and azimuthal angle */
+            for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
 
-          /* Use local array accumulator to prevent false sharing*/
-          FP_PRECISION* thread_fsr_flux;
-          thread_fsr_flux = new FP_PRECISION[_num_groups];
-
-          /* Initialize local pointers to important data structures */
-          curr_track = *iter;
-          num_segments = curr_track->getNumSegments();
-          segments = curr_track->getSegments();
-          track_id = curr_track->getUid();
-          track_flux = &_boundary_flux(track_id,0,0,0);
-
-          /* Loop over each Track segment in forward direction */
-          for (int s=0; s < num_segments; s++) {
-            curr_segment = &segments[s];
-            scalarFluxTally(curr_segment, i, track_flux,
-                            thread_fsr_flux,true);
+              /* Use local array accumulator to prevent false sharing*/
+              FP_PRECISION* thread_fsr_flux;
+              thread_fsr_flux = new FP_PRECISION[_num_groups];
+              
+              /* Initialize local pointers to important data structures */
+              curr_track = *iter;
+              num_segments = curr_track->getNumSegments();
+              segments = curr_track->getSegments();
+              track_id = curr_track->getUid();
+              track_flux = &_boundary_flux(track_id,0,0,0);
+              
+              /* Loop over each Track segment in forward direction */
+              for (int s=0; s < num_segments; s++) {
+                curr_segment = &segments[s];
+                scalarFluxTally(curr_segment, i, track_flux,
+                                thread_fsr_flux,true);
+              }
+              
+              /* Transfer boundary angular flux to outgoing Track */
+              transferBoundaryFluxModular(track_id, i, true, track_flux, curr_track);
+              
+              /* Loop over each Track segment in reverse direction */
+              track_flux += _polar_times_groups;
+              
+              for (int s=num_segments-1; s > -1; s--) {
+                curr_segment = &segments[s];
+                scalarFluxTally(curr_segment, i, track_flux,
+                                thread_fsr_flux,false);
+              }
+              delete thread_fsr_flux;
+              
+              /* Transfer boundary angular flux to outgoing Track */
+              transferBoundaryFluxModular(track_id, i, false, track_flux, curr_track);
+              
+            }
           }
-
-          /* Transfer boundary angular flux to outgoing Track */
-          transferBoundaryFluxModular(track_id, i, true, track_flux, curr_track);
-          
-          /* Loop over each Track segment in reverse direction */
-          track_flux += _polar_times_groups;
-
-          for (int s=num_segments-1; s > -1; s--) {
-              curr_segment = &segments[s];
-              scalarFluxTally(curr_segment, i, track_flux,
-                              thread_fsr_flux,false);
-          }
-          delete thread_fsr_flux;
-
-          /* Transfer boundary angular flux to outgoing Track */
-          transferBoundaryFluxModular(track_id, i, false, track_flux, curr_track);
-
         }
       }
     }
   }
+  /* Point Jacobi solver */
+  else{
+    /* loop over domain cells by color */
+    #pragma omp parallel for private(curr_track, track_id, num_segments, \
+      curr_segment, segments, track_flux, cell) schedule(guided)
+    for (int y = 0; y < cy; y++){
+      for (int x = 0; x < cx; x++){
+        cell = y*cx+x;
 
-  /* loop over green domain cells */
-  #pragma omp parallel for private(curr_track, track_id, num_segments, \
-    curr_segment, segments, track_flux, cell) schedule(guided)
-  for (int y = 1; y < cy; y += 2){
-    for (int x = y % 2; x < cx; x += 2){
-      cell = y*cx+x;
+        /* Loop over azimuthal angles */
+        for (int i=0; i < _num_azim; i++) {
 
-      /* Loop over azimuthal angles */
-      for (int i=0; i < _num_azim; i++) {
+          std::vector<Track*>::iterator iter;
 
-        std::vector<Track*>::iterator iter;
+          /* iterate over tracks in this cell and azimuthal angle */
+          for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
 
-        /* iterate over tracks in this cell and azimuthal angle */
-        for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
-
-          /* Use local array accumulator to prevent false sharing*/
-          FP_PRECISION* thread_fsr_flux;
-          thread_fsr_flux = new FP_PRECISION[_num_groups];
-
-          /* Initialize local pointers to important data structures */
-          curr_track = *iter;
-          num_segments = curr_track->getNumSegments();
-          segments = curr_track->getSegments();
-          track_id = curr_track->getUid();
-          track_flux = &_boundary_flux(track_id,0,0,0);
-
-          /* Loop over each Track segment in forward direction */
-          for (int s=0; s < num_segments; s++) {
-            curr_segment = &segments[s];
-            scalarFluxTally(curr_segment, i, track_flux,
-                            thread_fsr_flux,true);
-          }
-
-          /* Transfer boundary angular flux to outgoing Track */
-          transferBoundaryFluxModular(track_id, i, true, track_flux, curr_track);
-          
-          /* Loop over each Track segment in reverse direction */
-          track_flux += _polar_times_groups;
-          
-          for (int s=num_segments-1; s > -1; s--) {
+            /* Use local array accumulator to prevent false sharing*/
+            FP_PRECISION* thread_fsr_flux;
+            thread_fsr_flux = new FP_PRECISION[_num_groups];
+            
+            /* Initialize local pointers to important data structures */
+            curr_track = *iter;
+            num_segments = curr_track->getNumSegments();
+            segments = curr_track->getSegments();
+            track_id = curr_track->getUid();
+            track_flux = &_boundary_flux(track_id,0,0,0);
+            
+            /* Loop over each Track segment in forward direction */
+            for (int s=0; s < num_segments; s++) {
+              curr_segment = &segments[s];
+              scalarFluxTally(curr_segment, i, track_flux,
+                              thread_fsr_flux,true);
+            }
+            
+            /* Transfer boundary angular flux to outgoing Track */
+            if (curr_track->getOnBoundaryOut())
+              tallyCurrent(track_id, i, true, track_flux, curr_track);
+            
+            /* Loop over each Track segment in reverse direction */
+            track_flux += _polar_times_groups;
+            
+            for (int s=num_segments-1; s > -1; s--) {
               curr_segment = &segments[s];
               scalarFluxTally(curr_segment, i, track_flux,
                               thread_fsr_flux,false);
+            }
+            delete thread_fsr_flux;
+            
+            /* Transfer boundary angular flux to outgoing Track */
+            if (curr_track->getOnBoundaryIn())
+              tallyCurrent(track_id, i, false, track_flux, curr_track);
+            
           }
-          delete thread_fsr_flux;
-
-          /* Transfer boundary angular flux to outgoing Track */
-          transferBoundaryFluxModular(track_id, i, false, track_flux, curr_track);
-
         }
       }
     }
-  }
+    
+    transferTrackFluxes();
 
-  /* loop over red domain cells */
-  #pragma omp parallel for private(curr_track, track_id, num_segments, \
-    curr_segment, segments, track_flux, cell) schedule(guided)
-  for (int y = 0; y < cy; y += 2){
-    for (int x = 1 - y % 2; x < cx; x += 2){
-      cell = y*cx+x;
-      
-      /* Loop over azimuthal angles */
-      for (int i=0; i < _num_azim; i++) {
-
-        std::vector<Track*>::iterator iter;
-
-        /* iterate over tracks in this cell and azimuthal angle */
-        for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
-
-          /* Use local array accumulator to prevent false sharing*/
-          FP_PRECISION* thread_fsr_flux;
-          thread_fsr_flux = new FP_PRECISION[_num_groups];
-
-          /* Initialize local pointers to important data structures */
-          curr_track = *iter;
-          num_segments = curr_track->getNumSegments();
-          segments = curr_track->getSegments();
-          track_id = curr_track->getUid();
-          track_flux = &_boundary_flux(track_id,0,0,0);
-
-          /* Loop over each Track segment in forward direction */
-          for (int s=0; s < num_segments; s++) {
-            curr_segment = &segments[s];
-            scalarFluxTally(curr_segment, i, track_flux,
-                            thread_fsr_flux,true);
-          }
-
-          /* Transfer boundary angular flux to outgoing Track */
-          transferBoundaryFluxModular(track_id, i, true, track_flux, curr_track);
-          
-          /* Loop over each Track segment in reverse direction */
-          track_flux += _polar_times_groups;
-          
-          for (int s=num_segments-1; s > -1; s--) {
-              curr_segment = &segments[s];
-              scalarFluxTally(curr_segment, i, track_flux,
-                              thread_fsr_flux,false);
-          }
-          delete thread_fsr_flux;
-          
-          /* Transfer boundary angular flux to outgoing Track */
-          transferBoundaryFluxModular(track_id, i, false, track_flux, curr_track);
-        }
-      }
-    }
-  }
-
-  /* loop over blue domain cells */
-  #pragma omp parallel for private(curr_track, track_id, num_segments, \
-    curr_segment, segments, track_flux, cell) schedule(guided)
-  for (int y = 1; y < cy; y += 2){
-    for (int x = 1 - y % 2; x < cx; x += 2){
-      cell = y*cx+x;
-      
-      /* Loop over azimuthal angles */
-      for (int i=0; i < _num_azim; i++) {
-
-        std::vector<Track*>::iterator iter;
-
-        /* iterate over tracks in this cell and azimuthal angle */
-        for (iter = _modular_tracks.at(cell).at(i).begin(); iter != _modular_tracks.at(cell).at(i).end(); ++iter){
-
-          /* Use local array accumulator to prevent false sharing*/
-          FP_PRECISION* thread_fsr_flux;
-          thread_fsr_flux = new FP_PRECISION[_num_groups];
-
-          /* Initialize local pointers to important data structures */
-          curr_track = *iter;
-          num_segments = curr_track->getNumSegments();
-          segments = curr_track->getSegments();
-          track_id = curr_track->getUid();
-          track_flux = &_boundary_flux(track_id,0,0,0);
-
-          /* Loop over each Track segment in forward direction */
-          for (int s=0; s < num_segments; s++) {
-            curr_segment = &segments[s];
-            scalarFluxTally(curr_segment, i, track_flux,
-                            thread_fsr_flux,true);
-          }
-
-          /* Transfer boundary angular flux to outgoing Track */
-          transferBoundaryFluxModular(track_id, i, true, track_flux, curr_track);
-          
-          /* Loop over each Track segment in reverse direction */
-          track_flux += _polar_times_groups;
-          
-          for (int s=num_segments-1; s > -1; s--) {
-              curr_segment = &segments[s];
-              scalarFluxTally(curr_segment, i, track_flux,
-                              thread_fsr_flux,false);
-          }
-          delete thread_fsr_flux;
-          
-          /* Transfer boundary angular flux to outgoing Track */
-          transferBoundaryFluxModular(track_id, i, false, track_flux, curr_track);
-        }
-      }
-    }
   }
 
   return;
+}
+
+
+/**
+ * @brief This method performs one transport sweep of all azimuthal angles,
+ *        Tracks, Track segments, polar angles and energy groups.
+ * @details The method integrates the flux along each Track and updates the
+ *          boundary fluxes for the corresponding output Track, while updating
+ *          the scalar flux in each flat source region.
+ */
+void ModularCPUSolver::transferTrackFluxes() {
+
+  std::map<Track*, macro_track> modular_track_map = _modular_track_generator->getModularTrackMap();
+  std::map<Track*, macro_track>::iterator iter;
+  int track_out_id;
+  FP_PRECISION* track_flux;
+
+  for (iter = modular_track_map.begin(); iter != modular_track_map.end(); ++iter){
+
+    Track* start_track = (*iter).second._start;
+    Track* end_track = (*iter).second._end;
+    Track* current_track = end_track;
+    
+    /* Loop in reverse direction passing forward flux */
+    while(!current_track->getOnBoundaryIn()){
+        
+      track_flux = &_boundary_flux(current_track->getUid(),0,0,0);
+      track_out_id = current_track->getTrackIn()->getUid();
+      FP_PRECISION* track_out_flux = &_boundary_flux(track_out_id,0,0,0);
+      
+      /* Transfer flux */
+      for (int e=0; e < _num_groups; e++) {
+        for (int p=0; p < _num_polar; p++) {
+          track_flux(p,e) = track_out_flux(p,e);
+        }
+      }
+
+      current_track = current_track->getTrackIn();
+    }
+    
+    track_flux = &_boundary_flux(current_track->getUid(),0,0,0);
+
+    /* Transfer flux */
+    for (int e=0; e < _num_groups; e++) {
+      for (int p=0; p < _num_polar; p++) {
+        track_flux(p,e) = 0.0;
+      }
+    }
+
+    /* Loop in forward direction passing reverse flux */
+    while(!current_track->getOnBoundaryOut()){
+        
+      track_flux = &_boundary_flux(current_track->getUid(),0,0,_polar_times_groups);
+      track_out_id = current_track->getTrackOut()->getUid();
+      FP_PRECISION* track_out_flux = &_boundary_flux(track_out_id,0,0,_polar_times_groups);
+      
+      /* Transfer flux */
+      for (int e=0; e < _num_groups; e++) {
+        for (int p=0; p < _num_polar; p++) {
+          track_flux(p,e) = track_out_flux(p,e);
+        }
+      }
+
+      current_track = current_track->getTrackOut();
+    }
+
+    track_flux = &_boundary_flux(current_track->getUid(),0,0,_polar_times_groups);
+
+    /* Transfer flux */
+    for (int e=0; e < _num_groups; e++) {
+      for (int p=0; p < _num_polar; p++) {
+        track_flux(p,e) = 0.0;
+      }
+    }
+  }
 }
 
 
@@ -438,6 +420,52 @@ void ModularCPUSolver::transferBoundaryFluxModular(int track_id,
 
 
 /**
+ * @brief Updates the boundary flux for a Track given boundary conditions.
+ * @details For reflective boundary conditions, the outgoing boundary flux
+ *          for the Track is given to the reflecting Track. For vacuum
+ *          boundary conditions, the outgoing flux tallied as leakage.
+ * @param track_id the ID number for the Track of interest
+ * @param azim_index a pointer to the azimuthal angle index for this segment
+ * @param direction the Track direction (forward - true, reverse - false)
+ * @param track_flux a pointer to the Track's outgoing angular flux
+ */
+void ModularCPUSolver::tallyCurrent(int track_id,
+                                      int azim_index,
+                                      bool direction,
+                                      FP_PRECISION* track_flux,
+                                      Track* track) {
+  int bc;
+  FP_PRECISION* track_leakage;
+  int on_boundary;
+
+  /* Extract boundary conditions for this Track and the pointer to the
+   * outgoing reflective Track, and index into the leakage array */
+
+  /* For the "forward" direction */
+  if (direction) {
+    bc = (int)track->getBCOut();
+    track_leakage = &_boundary_leakage(track_id,0);
+    on_boundary = (int)track->getOnBoundaryOut();
+  }
+
+  /* For the "reverse" direction */
+  else {
+    bc = (int)track->getBCIn();
+    track_leakage = &_boundary_leakage(track_id,_polar_times_groups);
+    on_boundary = (int)track->getOnBoundaryIn();
+  }
+
+  /* Loop over polar angles and energy groups */
+  for (int e=0; e < _num_groups; e++) {
+    for (int p=0; p < _num_polar; p++) {
+      track_leakage(p,e) = track_flux(p,e) * on_boundary *
+                            _polar_weights(azim_index,p) * (!bc);
+    }
+  }
+}
+
+
+/**
  * @brief Checks that each FSR has at least one Track segment crossing it
  *        and if not, throws an exception and prints an error message.
  * @details This method is for internal use only and is called by the
@@ -489,4 +517,151 @@ void ModularCPUSolver::checkTrackSpacing() {
   }
 
   delete [] FSR_segment_tallies;
+}
+
+
+void ModularCPUSolver::setHalfUpdate(bool half_update){
+
+  if (!half_update){
+    if (_geometry->getBCTop() == true || _geometry->getBCBottom() == true ||
+        _geometry->getBCLeft() == true || _geometry->getBCRight() == true)
+      log_printf(ERROR, "The ModularCPUSolver's half update can only be used "
+                 "for geometry's that have all VACUUM BCs");      
+  }
+
+  _half_update = half_update;
+
+  if (_half_update)
+    log_printf(NORMAL, "ModularCPUSolver set to Gauss Seidel");
+  else
+    log_printf(NORMAL, "ModularCPUSolver set to Point Jacobi");
+}
+
+
+/**
+ * @brief Computes the total source (fission and scattering) in each FSR.
+ * @details This method computes the total source in each FSR based on
+ *          this iteration's current approximation to the scalar flux. A
+ *          residual for the source with respect to the source compute on
+ *          the previous iteration is computed and returned. The residual
+ *          is determined as follows:
+ *          /f$ res = \sqrt{\frac{\displaystyle\sum \displaystyle\sum
+ *                    \left(\frac{Q^i - Q^{i-1}{Q^i}\right)^2}{\# FSRs}}} \f$
+ *
+ * @return the residual between this source and the previous source
+ */
+FP_PRECISION ModularCPUSolver::computeFSRSources() {
+
+  int tid;
+  Material* material;
+  FP_PRECISION scatter_source;
+  FP_PRECISION fission_source;
+  FP_PRECISION* nu_sigma_f;
+  FP_PRECISION* sigma_s;
+  FP_PRECISION* sigma_t;
+  FP_PRECISION* chi;
+
+  FP_PRECISION source_residual = 0.0;
+
+  FP_PRECISION inverse_k_eff = 1.0 / _k_eff;
+  int source = 2;
+
+  /* Initialize the source residuals to zero */
+  for (int r=0; r < _num_FSRs; r++)
+    _source_residuals[r] = 0.;
+
+  /* For all FSRs, find the source */
+  #pragma omp parallel for private(tid, material, nu_sigma_f, chi, \
+    sigma_s, sigma_t, fission_source, scatter_source) schedule(guided)
+  for (int r=0; r < _num_FSRs; r++) {
+
+    tid = omp_get_thread_num();
+    material = _FSR_materials[r];
+    nu_sigma_f = material->getNuSigmaF();
+    chi = material->getChi();
+    sigma_s = material->getSigmaS();
+    sigma_t = material->getSigmaT();
+
+    /* Compute fission source for each group */
+    if (material->isFissionable()) {
+      for (int e=0; e < _num_groups; e++)
+        _fission_sources(r,e) = _scalar_flux(r,e) * nu_sigma_f[e];
+
+        fission_source = pairwise_sum<FP_PRECISION>(&_fission_sources(r,0),
+                                                     _num_groups);
+        fission_source *= inverse_k_eff;
+    }
+
+    else
+      fission_source = 0.0;
+
+    /* Compute total scattering source for group G */
+    for (int G=0; G < _num_groups; G++) {
+      scatter_source = 0;
+
+      for (int g=0; g < _num_groups; g++)
+        _scatter_sources(tid,g) = material->getSigmaSByGroupInline(g,G)
+                      * _scalar_flux(r,g);
+
+        scatter_source=pairwise_sum<FP_PRECISION>(&_scatter_sources(tid,0),
+                                                   _num_groups);
+
+      /* Set the total source for FSR r in group G */
+      _source(r,G) = (fission_source * chi[G] + scatter_source) *
+                      ONE_OVER_FOUR_PI;
+
+      _reduced_source(r,G) = _source(r,G) / sigma_t[G];
+
+      /* Compute the norm of residual of the source in the FSR */
+      if (source == 0){
+        if (fabs(_source(r,G)) > 1E-10)
+          _source_residuals[r] += pow((_source(r,G) - _old_source(r,G))
+                                      / _source(r,G), 2);
+
+        /* Update the old source */
+        _old_source(r,G) = _source(r,G);              
+      }
+    }
+    
+    if (source == 1){
+      if (fabs(fission_source) > 1E-10)
+        _source_residuals[r] += pow((fission_source - _old_source(r,0))
+                                    / (fission_source), 2);
+      
+      /* Update the old source */
+      _old_source(r,0) = fission_source;      
+    }
+    else if (source == 2){
+      if (fission_source > 1E-10){
+        int pin_id = _geometry->findFSRLU(r);
+        _source_residuals[pin_id] += fission_source * _FSR_volumes[r];
+      }      
+    }
+  }
+
+  int num_pins = 0;
+
+  if (source == 2){
+    for (int r=0; r < _num_FSRs; r++) {
+      if (_source_residuals[r] > 1E-10){
+        num_pins++;
+        FP_PRECISION old_source = _source_residuals[r];
+        _source_residuals[r] = pow((_source_residuals[r] - _old_source(r,0))
+                                   / (_source_residuals[r]), 2);
+
+        _old_source(r,0) = old_source;
+      }
+    }    
+  }
+
+  /* Sum up the residuals from each FSR */
+  source_residual = pairwise_sum<FP_PRECISION>(_source_residuals, _num_FSRs);
+  if (source == 0)
+    source_residual = sqrt(source_residual / (_num_FSRs * _num_groups));
+  else if (source == 1)
+    source_residual = sqrt(source_residual / _num_FSRs);
+  else if (source == 2)
+    source_residual = sqrt(source_residual / num_pins);
+
+  return source_residual;
 }

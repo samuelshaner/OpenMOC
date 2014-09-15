@@ -25,8 +25,13 @@ Geometry::Geometry() {
   _num_FSRs = 0;
   _num_groups = 0;
 
-  /* assign cmfd mesh to _cmfd variable */
+  /* Initialized _cmfd and _domain_lattice to NULL */
   _cmfd = NULL;
+  _domain_lattice = NULL;
+
+  /* initialize _num_FSRs lock */
+  _num_FSRs_lock = new omp_lock_t;
+  omp_init_lock(_num_FSRs_lock);
 }
 
 
@@ -44,6 +49,9 @@ Geometry::~Geometry() {
 
   /* Free FSR  maps if they were initialized */
   if (_num_FSRs != 0) {
+    for (int i = 0; i < _FSR_keys_map.size(); i++)
+      _FSR_keys_map.at(i).clear();
+    
     _FSR_keys_map.clear();
     _FSRs_to_keys.clear();
     _FSRs_to_material_IDs.clear();
@@ -932,37 +940,45 @@ int Geometry::findFSRId(LocalCoords* coords) {
   /* Generate unique FSR key */
   fsr_key = getFSRKey(coords);
   std::size_t fsr_key_hash = key_hash_function(fsr_key);
+
+  /* get domain cell */
+  int domain_cell = _domain_lattice->getLatticeCell(coords->getHighestLevel()->getPoint());
   
   /* If FSR has not been encountered, update FSR maps and vectors */
-  if (!_FSR_keys_map.count(fsr_key_hash)){
+  if (!_FSR_keys_map.at(domain_cell).count(fsr_key_hash)){
       
     /* Get the cell that contains coords */
     CellBasic* cell = findCellContainingCoords(curr);
 
-    /* Create a new fsr entry into _FSR_keys_map */
+    /* get new FSR Id */
+    omp_set_lock(_num_FSRs_lock);
     fsr_id = _num_FSRs;
+    _num_FSRs++;
+    _FSRs_to_keys.push_back(fsr_key_hash);
+    _FSRs_to_material_IDs.push_back(cell->getMaterial());
+    _FSRs_to_LU_keys.push_back(key_hash_function(getLUKey(coords)));
+
+    /* If CMFD acceleration is on, add FSR to CMFD cell */
+    if (_cmfd != NULL){
+      int cmfd_cell = _cmfd->findCmfdCell(coords->getHighestLevel());
+      _cmfd->addFSRToCell(cmfd_cell, fsr_id);
+    }      
+
+    omp_unset_lock(_num_FSRs_lock);
+
+    /* Create a new fsr entry into _FSR_keys_map */
     fsr_data* fsr = new fsr_data;
     fsr->_fsr_id = fsr_id;
     Point* point = new Point();
     point->setCoords(coords->getHighestLevel()->getX(), 
                      coords->getHighestLevel()->getY());
     fsr->_point = point;
-    _FSR_keys_map.insert(std::map<std::size_t, fsr_data>::value_type(fsr_key_hash, *fsr));
-    _FSRs_to_keys.push_back(fsr_key_hash);
-    _FSRs_to_material_IDs.push_back(cell->getMaterial());
+    _FSR_keys_map.at(domain_cell).insert(std::map<std::size_t, fsr_data>::value_type(fsr_key_hash, *fsr));
     
-    /* If CMFD acceleration is on, add FSR to CMFD cell */
-    if (_cmfd != NULL){
-      int cmfd_cell = _cmfd->findCmfdCell(coords->getHighestLevel());
-      _cmfd->addFSRToCell(cmfd_cell, fsr_id);
-    }
-      
-    /* Increment FSR counter and unset lock */
-    _num_FSRs++;
   }
   /* If FSR has already been encountered, get the fsr id from map */
   else{      
-    fsr_id = _FSR_keys_map.at(fsr_key_hash)._fsr_id;
+    fsr_id = _FSR_keys_map.at(domain_cell).at(fsr_key_hash)._fsr_id;
   }
   
   return fsr_id;
@@ -981,9 +997,12 @@ int Geometry::getFSRId(LocalCoords* coords) {
   std::string fsr_key;
   std::hash<std::string> key_hash_function;
   
+  /* get domain cell */
+  int domain_cell = _domain_lattice->getLatticeCell(coords->getHighestLevel()->getPoint());
+  
   try{
     fsr_key = getFSRKey(coords);
-    fsr_id = _FSR_keys_map.at(key_hash_function(fsr_key))._fsr_id;
+    fsr_id = _FSR_keys_map.at(domain_cell).at(key_hash_function(fsr_key))._fsr_id;
   }
   catch(std::exception &e) {
     log_printf(ERROR, "Could not get FSR ID with key: %s. Try creating "
@@ -1002,15 +1021,17 @@ int Geometry::getFSRId(LocalCoords* coords) {
  */
 Point* Geometry::getFSRPoint(int fsr_id) {
 
-  Point* point;
-    
-  try{
-    point = _FSR_keys_map.at(_FSRs_to_keys.at(fsr_id))._point;
+  Point* point = NULL;
+
+  for (int i = 0; i < _FSR_keys_map.size(); i++){
+    if (_FSR_keys_map.at(i).count(_FSRs_to_keys.at(fsr_id))){
+      point = _FSR_keys_map.at(i).at(_FSRs_to_keys.at(fsr_id))._point;
+      break;
+    }
   }
-  catch(std::exception &e) {
-    log_printf(ERROR, "Could not find characteristic poitn in FSR: %i. "
-               "Backtrace:%s", fsr_id, e.what());
-  }
+ 
+  if (point == NULL)
+    log_printf(ERROR, "Could not find characteristic point in FSR: %i", fsr_id);
 
   return point;  
 }
@@ -1032,6 +1053,15 @@ std::string Geometry::getFSRKey(LocalCoords* coords) {
   std::stringstream key;
   LocalCoords* curr = coords->getHighestLevel();
   std::ostringstream curr_level_key;
+
+  /* If domain decomposition is on, write domain cell to key */
+  if (_domain_lattice != NULL){
+      curr_level_key << _domain_lattice->getLatX(curr->getPoint());
+      key << "DD = (" << curr_level_key.str() << ", ";
+      curr_level_key.str(std::string());
+      curr_level_key << _domain_lattice->getLatY(curr->getPoint());
+      key << curr_level_key.str() << ") : ";
+  }
 
   /* If CMFD is on, get CMFD latice cell and write to key */
   if (_cmfd != NULL){
@@ -1086,6 +1116,60 @@ std::string Geometry::getFSRKey(LocalCoords* coords) {
 }
 
 
+/**
+ * @brief Generate a string FSR "key" that identifies an FSR by its
+ *        unique hierarchical lattice/universe/cell structure.
+ * @detail Since not all FSRs will reside on the absolute lowest universe
+ *         level and Cells might overlap other cells, it is important to
+ *         have a method for uniquely identifying FSRs. This method
+ *         createds a unique FSR key by constructing a structured string
+ *         that describes the hierarchy of lattices/universes/cells.
+ * @param coords a LocalCoords object pointer
+ * @return the FSR key
+ */
+std::string Geometry::getLUKey(LocalCoords* coords) {
+
+  std::stringstream key;
+  LocalCoords* curr = coords->getHighestLevel();
+  std::ostringstream curr_level_key;
+
+  /* Descend the linked list hierarchy until the lowest level has
+   * been reached */
+  while(curr != NULL){
+      
+    /* Clear string stream */
+    curr_level_key.str(std::string());
+      
+    if (curr->getType() == LAT) {
+
+      /* Write lattice ID and lattice cell to key */
+      curr_level_key << curr->getLattice();
+      key << "LAT = " << curr_level_key.str() << " (";
+      curr_level_key.str(std::string());
+      curr_level_key << curr->getLatticeX();
+      key << curr_level_key.str() << ", ";
+      curr_level_key.str(std::string());
+      curr_level_key << curr->getLatticeY();
+      key << curr_level_key.str() << ") : ";
+    }
+    else{
+
+      /* write universe ID to key */
+      curr_level_key << curr->getUniverse();
+      key << "UNIV = " << curr_level_key.str() << " : ";
+    }
+
+    /* If lowest coords reached break; otherwise get next coords */
+    if (curr->getNext() == NULL)
+      break;
+    else
+      curr = curr->getNext();
+  }
+
+  return key.str();
+}
+
+
 
 /**
  * @brief Subidivides all Cells in the Geometry into rings and angular sectors.
@@ -1133,10 +1217,17 @@ void Geometry::initializeFlatSourceRegions() {
 
   /* Subdivide Cells into sectors and rings */
   subdivideCells();
-  
+
   /* Initialize CMFD */
   if (_cmfd != NULL)
     initializeCmfd();
+
+  /* Initialized domain lattice */
+  Lattice* lattice = new Lattice(0, getWidth(), getHeight());
+  lattice->setNumX(1);
+  lattice->setNumY(1);
+  setDomainLattice(lattice);
+
 }
 
 
@@ -1468,7 +1559,7 @@ void Geometry::initializeCmfd(){
  * @brief Returns the map that maps FSR keys to FSR IDs
  * @return _FSR_keys_map map of FSR keys to FSR IDs
  */
-std::map<std::size_t, fsr_data> Geometry::getFSRKeysMap(){
+std::vector< std::map<std::size_t, fsr_data> > Geometry::getFSRKeysMap(){
   return _FSR_keys_map;
 }
 
@@ -1500,7 +1591,7 @@ std::vector<int> Geometry::getFSRsToMaterials() {
  * @brief Sets the _FSR_keys_map map
  * @param FSR_keys_map map of FSR keys to FSR IDs
  */
-void Geometry::setFSRKeysMap(std::map<std::size_t, fsr_data> FSR_keys_map){
+void Geometry::setFSRKeysMap(std::vector< std::map<std::size_t, fsr_data> > FSR_keys_map){
   _FSR_keys_map = FSR_keys_map;
 }
 
@@ -1538,4 +1629,59 @@ void Geometry::setCmfd(Cmfd* cmfd){
  */
 Cmfd* Geometry::getCmfd(){
   return _cmfd;
+}
+
+
+/**
+ * @brief Sets the Lattice objectused for domain decomposition.
+ * @param Pointer to Lattice object
+ */
+void Geometry::setDomainLattice(Lattice* lattice){
+
+  /* If _domain_lattice exists, erase it and _FSR_keys_map */
+  if (_domain_lattice != NULL){
+
+    for (int i = 0; i < _FSR_keys_map.size(); i++){
+      _FSR_keys_map.at(i).clear();
+    } 
+
+    _FSR_keys_map.clear();
+  }
+
+  /* Set domain lattice */
+  _domain_lattice = lattice;
+
+  /* Initialize _FSR_keys_map */
+  int num_x = _domain_lattice->getNumX();
+  int num_y = _domain_lattice->getNumY();
+  int cell;
+
+  for (int i = 0; i < num_x; i++){
+    for (int j = 0; j < num_y; j++){
+      cell = j*num_x + i;
+
+      std::map<std::size_t, fsr_data> *fsr_keys_map 
+          = new std::map<std::size_t, fsr_data>;
+      _FSR_keys_map.push_back(*fsr_keys_map);
+    }
+  }
+}
+
+
+void Geometry::initializeLUToPinCellMap(){
+
+  int pin_id = 0;
+
+  for (int i = 0; i < _num_FSRs; i++){
+    std::size_t LU_hash = _FSRs_to_LU_keys.at(i);
+    if (!_LU_keys_to_IDs.count(LU_hash)){
+      _LU_keys_to_IDs.insert(std::map<std::size_t, int>::value_type(LU_hash, pin_id));
+      pin_id++;
+    }
+  }
+}
+
+
+int Geometry::findFSRLU(int fsr_id){
+  return _LU_keys_to_IDs.at(_FSRs_to_LU_keys.at(fsr_id));
 }

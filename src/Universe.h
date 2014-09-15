@@ -160,7 +160,6 @@ public:
 
   int getLatX(Point* point);
   int getLatY(Point* point);
-
   int getLatticeCell(Point* point);
   int getLatticeSurface(int cell, Point* point);
 

@@ -12,6 +12,7 @@ ModularTrackGenerator::ModularTrackGenerator(Geometry* geometry,
                                              const double spacing) 
     :TrackGenerator(geometry, num_azim, spacing) {
 
+  setNumThreads(1);
   _cx = 1;
   _cy = 1;
 }
@@ -58,12 +59,19 @@ int ModularTrackGenerator::getNumCells() {
 void ModularTrackGenerator::setLatticeStructure(int cx, int cy){
   setNumX(cx);
   setNumY(cy);
+
+  log_printf(NORMAL, "DD lattice structure set to %i by %i", cx, cy);
 }
 
 
 
 std::vector< std::vector< std::vector<Track*> > > ModularTrackGenerator::getModularTracks(){
   return _modular_tracks;
+}
+
+
+std::map<Track*, macro_track> ModularTrackGenerator::getModularTrackMap(){
+  return _modular_track_map;
 }
 
 
@@ -127,6 +135,7 @@ void ModularTrackGenerator::generateTracks() {
       recalibrateTracksToOrigin();
       decomposeTracks();
       segmentize();
+      _geometry->initializeLUToPinCellMap();
       //dumpTracksToFile();
     }
     catch (std::exception &e) {
@@ -230,7 +239,8 @@ void ModularTrackGenerator::decomposeTracks() {
   _lattice = new Lattice(0, cell_width, cell_height);
   _lattice->setNumX(_cx);
   _lattice->setNumY(_cy);
-
+  _geometry->setDomainLattice(_lattice);
+  
   log_printf(INFO, "decomposing tracks");
 
   /* Loop over tracks generated for the geometry and decompose them into 
@@ -617,6 +627,10 @@ void ModularTrackGenerator::segmentize() {
   Track* track;
   std::vector<Track*>::iterator iter;
   int num_segments;
+  int cell_count;
+  omp_lock_t* cell_count_lock;
+  cell_count_lock = new omp_lock_t;
+  omp_init_lock(cell_count_lock);
 
   if (_num_segments != NULL)
     delete [] _num_segments;
@@ -628,8 +642,15 @@ void ModularTrackGenerator::segmentize() {
     log_printf(NORMAL, "segmenting tracks...");
 
     /* Loop over all Tracks */
+    #pragma omp parallel for private(iter, track)
     for (int cell = 0; cell < _cx*_cy; cell++){
-      log_printf(NORMAL, "segmenting cell: %i", cell);
+        
+      /* Print segmenting progress */
+      omp_set_lock(cell_count_lock);
+      cell_count++;
+      log_printf(NORMAL, "segmenting cell %i of %i", cell_count, _cx*_cy);      
+      omp_unset_lock(cell_count_lock);
+
       for (int i=0; i < _num_azim; i++) {
         for (iter = _modular_tracks.at(cell).at(i).begin(); 
              iter != _modular_tracks.at(cell).at(i).end(); ++iter){
@@ -641,6 +662,8 @@ void ModularTrackGenerator::segmentize() {
         }
       }
     }
+
+    omp_destroy_lock(cell_count_lock);
 
     log_printf(NORMAL, "done segmenting tracks...");
 
@@ -717,7 +740,7 @@ void ModularTrackGenerator::retrieveSegmentCoords(double* coords, int num_segmen
           curr_segment = &segments[s];
 
           coords[counter] = curr_segment->_region_id;
-          //coords[counter] = cell;
+          //coords[counter] = _geometry->getCmfd()->convertFSRIdToCmfdCell(curr_segment->_region_id);
 
           coords[counter+1] = x0;
           coords[counter+2] = y0;
@@ -905,7 +928,7 @@ void ModularTrackGenerator::dumpTracksToFile() {
   }
 
   /* Get FSR vector maps */
-  std::map<std::size_t, fsr_data> FSR_keys_map = _geometry->getFSRKeysMap();
+  std::vector< std::map<std::size_t, fsr_data> > FSR_keys_map = _geometry->getFSRKeysMap();
   std::map<std::size_t, fsr_data>::iterator iter;
   std::vector<std::size_t> FSRs_to_keys = _geometry->getFSRsToKeys();
   std::vector<int> FSRs_to_material_IDs = _geometry->getFSRsToMaterials();
@@ -919,26 +942,28 @@ void ModularTrackGenerator::dumpTracksToFile() {
   fwrite(&num_FSRs, sizeof(int), 1, out);
 
   /* Write FSR vector maps to file */
-  for (iter = FSR_keys_map.begin(); iter != FSR_keys_map.end(); ++iter){
+  for (int i = 0; i < FSR_keys_map.size(); i++){
+    for (iter = FSR_keys_map.at(i).begin(); iter != FSR_keys_map.at(i).end(); ++iter){
 
-    /* Write data to file from FSR_keys_map */
-    fsr_key = iter->first;
-    fsr_id = iter->second._fsr_id;
-    x = iter->second._point->getX();
-    y = iter->second._point->getY();
-    fwrite(&fsr_key, sizeof(std::size_t), 1, out);
-    fwrite(&fsr_id, sizeof(int), 1, out);
-    fwrite(&x, sizeof(double), 1, out);
-    fwrite(&y, sizeof(double), 1, out);
-    
-    /* Write data to file from FSRs_to_material_IDs */
-    fwrite(&(FSRs_to_material_IDs.at(fsr_counter)), sizeof(int), 1, out);
+      /* Write data to file from FSR_keys_map */
+      fsr_key = iter->first;
+      fsr_id = iter->second._fsr_id;
+      x = iter->second._point->getX();
+      y = iter->second._point->getY();
+      fwrite(&fsr_key, sizeof(std::size_t), 1, out);
+      fwrite(&fsr_id, sizeof(int), 1, out);
+      fwrite(&x, sizeof(double), 1, out);
+      fwrite(&y, sizeof(double), 1, out);
+      
+      /* Write data to file from FSRs_to_material_IDs */
+      fwrite(&(FSRs_to_material_IDs.at(fsr_counter)), sizeof(int), 1, out);
 
-    /* Write data to file from FSRs_to_keys */
-    fwrite(&(FSRs_to_keys.at(fsr_counter)), sizeof(std::size_t), 1, out);
+      /* Write data to file from FSRs_to_keys */
+      fwrite(&(FSRs_to_keys.at(fsr_counter)), sizeof(std::size_t), 1, out);
 
-    /* Increment FSR ID counter */
-    fsr_counter++;
+      /* Increment FSR ID counter */
+      fsr_counter++;
+    }
   }
 
   /* Write cmfd_fsrs vector of vectors to file */
@@ -969,4 +994,21 @@ void ModularTrackGenerator::dumpTracksToFile() {
   _use_input_file = true;
 
   return;
+}
+
+
+/**
+ * @brief Sets the number of shared memory OpenMP threads to use (>0).
+ * @param num_threads the number of threads
+ */
+void ModularTrackGenerator::setNumThreads(int num_threads) {
+
+  if (num_threads <= 0)
+    log_printf(ERROR, "Unable to set the number of threads for the Solver "
+               "to %d since it is less than or equal to 0", num_threads);
+
+  _num_threads = num_threads;
+
+  /* Set the number of threads for OpenMP */
+  omp_set_num_threads(_num_threads);
 }

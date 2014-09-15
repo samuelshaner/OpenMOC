@@ -611,112 +611,59 @@ void Cmfd::linearSolve(FP_PRECISION** mat, FP_PRECISION* vec_x,
     /* Pass new flux to old flux */
     vector_copy(_new_source, _flux_temp, _num_x*_num_y*_num_cmfd_groups);
 
-    /* Iteration over red cells */
-    #pragma omp parallel for private(row, val, cell)
-    for (int y = 0; y < _num_y; y++){
-      for (int x = y % 2; x < _num_x; x += 2){
+    /* Loop over cells in red-black ordering scheme */
+    for (int color = 0; color < 2; color++){
+      #pragma omp parallel for private(row, val, cell)
+      for (int y = 0; y < _num_y; y++){
+        for (int x = abs(color - y % 2); x < _num_x; x += 2){
 
-        cell = y*_num_x+x;
+          cell = y*_num_x+x;
 
-        for (int g = 0; g < _num_cmfd_groups; g++){
+          for (int g = 0; g < _num_cmfd_groups; g++){
 
-          row = (y*_num_x+x)*_num_cmfd_groups + g;
-          val = 0.0;
+            row = (y*_num_x+x)*_num_cmfd_groups + g;
+            val = 0.0;
 
-          /* Previous flux term */
-          val += (1.0 - _SOR_factor) * vec_x[row];
+            /* Previous flux term */
+            val += (1.0 - _SOR_factor) * vec_x[row];
+            
+            /* Source term */
+            val += _SOR_factor*vec_b[row] / mat[cell][g*(_num_cmfd_groups+4)+g+2];
+            
+            /* Left surface */
+            if (x != 0)
+              val -= _SOR_factor * vec_x[row - _num_cmfd_groups] *
+                  mat[cell][g*(_num_cmfd_groups+4)] /
+                  mat[cell][g*(_num_cmfd_groups+4)+g+2];
 
-          /* Source term */
-          val += _SOR_factor*vec_b[row] / mat[cell][g*(_num_cmfd_groups+4)+g+2];
+            /* Bottom surface */
+            if (y != 0)
+              val -= _SOR_factor * vec_x[row - _num_x * _num_cmfd_groups] *
+                  mat[cell][g*(_num_cmfd_groups+4)+1] /
+                  mat[cell][g*(_num_cmfd_groups+4)+g+2];
 
-          /* Left surface */
-          if (x != 0)
-            val -= _SOR_factor * vec_x[row - _num_cmfd_groups] *
-                   mat[cell][g*(_num_cmfd_groups+4)] /
-                   mat[cell][g*(_num_cmfd_groups+4)+g+2];
+            /* Group-to-group */
+            for (int e = 0; e < _num_cmfd_groups; e++){
+              if (e != g)
+                val -= _SOR_factor * vec_x[(y*_num_x+x)*_num_cmfd_groups+e] *
+                    mat[cell][g*(_num_cmfd_groups+4)+2+e] /
+                    mat[cell][g*(_num_cmfd_groups+4)+g+2];
+            }
 
-          /* Bottom surface */
-          if (y != 0)
-            val -= _SOR_factor * vec_x[row - _num_x * _num_cmfd_groups] *
-                   mat[cell][g*(_num_cmfd_groups+4)+1] /
-                   mat[cell][g*(_num_cmfd_groups+4)+g+2];
+            /* Right surface */
+            if (x != _num_x - 1)
+              val -= _SOR_factor * vec_x[row + _num_cmfd_groups] *
+                  mat[cell][g*(_num_cmfd_groups+4)+_num_cmfd_groups+2] /
+                  mat[cell][g*(_num_cmfd_groups+4)+g+2];
 
-          /* Group-to-group */
-          for (int e = 0; e < _num_cmfd_groups; e++){
-            if (e != g)
-              val -= _SOR_factor * vec_x[(y*_num_x+x)*_num_cmfd_groups+e] *
-                     mat[cell][g*(_num_cmfd_groups+4)+2+e] /
-                     mat[cell][g*(_num_cmfd_groups+4)+g+2];
+            /* Top surface */
+            if (y != _num_y - 1)
+              val -= _SOR_factor * vec_x[row + _num_cmfd_groups*_num_x] *
+                  mat[cell][g*(_num_cmfd_groups+4)+_num_cmfd_groups+3] /
+                  mat[cell][g*(_num_cmfd_groups+4)+g+2];
+            
+            vec_x[row] = val;
           }
-
-          /* Right surface */
-          if (x != _num_x - 1)
-            val -= _SOR_factor * vec_x[row + _num_cmfd_groups] *
-                   mat[cell][g*(_num_cmfd_groups+4)+_num_cmfd_groups+2] /
-                   mat[cell][g*(_num_cmfd_groups+4)+g+2];
-
-          /* Top surface */
-          if (y != _num_y - 1)
-            val -= _SOR_factor * vec_x[row + _num_cmfd_groups*_num_x] *
-                   mat[cell][g*(_num_cmfd_groups+4)+_num_cmfd_groups+3] /
-                   mat[cell][g*(_num_cmfd_groups+4)+g+2];
-
-          vec_x[row] = val;
-        }
-      }
-    }
-
-    /* Iteration over black cells */
-    #pragma omp parallel for private(row, val, cell)
-    for (int y = 0; y < _num_y; y++){
-      for (int x = 1 - y % 2; x < _num_x; x += 2){
-
-        cell = y*_num_x+x;
-
-        for (int g = 0; g < _num_cmfd_groups; g++){
-
-          row = cell*_num_cmfd_groups + g;
-          val = 0.0;
-
-          /* Previous flux term */
-          val += (1.0 - _SOR_factor) * vec_x[row];
-
-          /* Source term */
-          val += _SOR_factor*vec_b[row] / mat[cell][g*(_num_cmfd_groups+4)+g+2];
-
-          /* Left surface */
-          if (x != 0)
-            val -= _SOR_factor * vec_x[row - _num_cmfd_groups] *
-                   mat[cell][g*(_num_cmfd_groups+4)] /
-                   mat[cell][g*(_num_cmfd_groups+4)+g+2];
-
-          /* Bottom surface */
-          if (y != 0)
-            val -= _SOR_factor * vec_x[row - _num_x * _num_cmfd_groups] *
-                   mat[cell][g*(_num_cmfd_groups+4)+1] /
-                   mat[cell][g*(_num_cmfd_groups+4)+g+2];
-
-          /* Group-to-group */
-          for (int e = 0; e < _num_cmfd_groups; e++){
-            if (e != g)
-              val -= _SOR_factor * vec_x[(y*_num_x+x)*_num_cmfd_groups+e] *
-                     mat[cell][g*(_num_cmfd_groups+4)+2+e] /
-                     mat[cell][g*(_num_cmfd_groups+4)+g+2];
-          }
-
-          /* Right surface */
-          if (x != _num_x - 1)
-            val -= _SOR_factor * vec_x[row + _num_cmfd_groups] *
-                   mat[cell][g*(_num_cmfd_groups+4)+_num_cmfd_groups+2] /
-                   mat[cell][g*(_num_cmfd_groups+4)+g+2];
-
-          /* Top surface */
-          if (y != _num_y - 1)
-            val -= _SOR_factor * vec_x[row + _num_cmfd_groups*_num_x] *
-                   mat[cell][g*(_num_cmfd_groups+4)+_num_cmfd_groups+3] /
-                   mat[cell][g*(_num_cmfd_groups+4)+g+2];
-
-          vec_x[row] = val;
         }
       }
     }
@@ -1223,6 +1170,8 @@ void Cmfd::setLattice(Lattice* lattice){
 void Cmfd::setLatticeStructure(int num_x, int num_y){
   setNumX(num_x);
   setNumY(num_y);
+  
+  log_printf(NORMAL, "CMFD lattice structure set to %i by %i", num_x, num_y);
 }
 
 

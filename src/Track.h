@@ -142,7 +142,6 @@ public:
   void setOnBoundaryOut(const bool on_boundary_out);
   void setOnBoundaryIn(const bool on_boundary_in);
 
-
   int getUid();
   Point* getEnd();
   Point* getStart();

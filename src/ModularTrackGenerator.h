@@ -19,7 +19,6 @@
 #include "Track.h"
 #include "Geometry.h"
 #include "TrackGenerator.h"
-#include <unordered_map>
 #endif
 
 
@@ -65,7 +64,11 @@ private:
   
   std::vector< std::vector< std::vector<Track*> > > _modular_tracks;
   
-  std::unordered_map<Track*, macro_track> _modular_track_map;
+  std::map<Track*, macro_track> _modular_track_map;
+
+  /** The number of shared memory OpenMP threads */
+  int _num_threads;
+
 
 public:
   ModularTrackGenerator(Geometry* geometry, int num_azim, double spacing);
@@ -89,8 +92,10 @@ public:
   virtual void initializeTrackFileDirectory();
   virtual void retrieveTrackCoords(double* coords, int num_tracks);
   int findDomainCell(LocalCoords* coords);
+  void setNumThreads(int num_threads);
 
   std::vector< std::vector< std::vector<Track*> > > getModularTracks();
+  std::map<Track*, macro_track> getModularTrackMap();
 };
 
 #endif /* MODULARTRACKGENERATOR_H_ */

@@ -47,7 +47,7 @@ planes.append(YPlane(y=2.0))
 circles.append(Circle(x=0.0, y=0.0, radius=0.4))
 circles.append(Circle(x=0.0, y=0.0, radius=0.3))
 circles.append(Circle(x=0.0, y=0.0, radius=0.2))
-for plane in planes: plane.setBoundaryType(REFLECTIVE)
+for plane in planes: plane.setBoundaryType(VACUUM)
 
 
 ###############################################################################
@@ -61,7 +61,7 @@ cells.append(CellBasic(universe=1, material=uo2_id))
 cells.append(CellBasic(universe=1, material=water_id))
 cells.append(CellBasic(universe=2, material=uo2_id))
 cells.append(CellBasic(universe=2, material=water_id))
-cells.append(CellBasic(universe=3, material=uo2_id, sectors=8))
+cells.append(CellBasic(universe=3, material=uo2_id))
 cells.append(CellBasic(universe=3, material=water_id))
 cells.append(CellFill(universe=0, universe_fill=5))
 

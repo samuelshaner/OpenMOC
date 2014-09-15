@@ -67,7 +67,7 @@ protected:
   void zeroSurfaceCurrents();
   void flattenFSRSources(FP_PRECISION value);
   void normalizeFluxes();
-  FP_PRECISION computeFSRSources();
+  virtual FP_PRECISION computeFSRSources();
 
   /**
    * @brief Computes the contribution to the FSR flux from a Track segment.

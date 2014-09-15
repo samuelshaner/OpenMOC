@@ -35,7 +35,8 @@ protected:
 
   ModularTrackGenerator* _modular_track_generator;
   std::vector< std::vector< std::vector<Track*> > > _modular_tracks;
-  
+ 
+  bool _half_update;
 
   virtual void initializeFluxArrays();
   virtual void initializeFSRs();
@@ -44,10 +45,17 @@ protected:
   void transferBoundaryFluxModular(int track_id, int azim_index,
                                     bool direction,
                                    FP_PRECISION* track_flux, Track* track);
-
+  void tallyCurrent(int track_id, int azim_index,
+                    bool direction,
+                    FP_PRECISION* track_flux, Track* track);
+  void transferTrackFluxes();
+  virtual FP_PRECISION computeFSRSources();
+  
 public:
   ModularCPUSolver(Geometry* geometry=NULL, TrackGenerator* track_generator=NULL);
   virtual ~ModularCPUSolver();
+
+  void setHalfUpdate(bool half_update);
 
 };
 

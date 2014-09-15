@@ -320,7 +320,6 @@ log.py_printf('NORMAL', 'Creating Cmfd mesh...')
 cmfd = Cmfd()
 cmfd.setLatticeStructure(51,51)
 cmfd.setGroupStructure([1,4,8])
-cmfd.setSORRelaxationFactor(1.5)
 
 ###############################################################################
 ##########################   Creating the Geometry   ##########################
@@ -344,12 +343,10 @@ log.py_printf('NORMAL', 'Initializing the track generator...')
 
 track_generator = ModularTrackGenerator(geometry, num_azim, track_spacing)
 track_generator.setLatticeStructure(3,3)
+track_generator.setNumThreads(num_threads)
 track_generator.generateTracks()
 
-#plotter.plot_domain_cells(geometry, track_generator, gridsize=500)
-#plotter.plot_materials(geometry, gridsize=500)
 #plotter.plot_flat_source_regions(geometry, gridsize=500)
-#plotter.plot_cmfd_cells(geometry, cmfd, gridsize=500)
 
 ###############################################################################
 ###########################   Running a Simulation   ##########################
@@ -371,8 +368,9 @@ log.py_printf('NORMAL', 'Plotting data...')
 #plotter.plot_tracks(track_generator)
 #plotter.plot_materials(geometry, gridsize=500)
 #plotter.plot_cells(geometry, gridsize=500)
+#plotter.plot_cmfd_cells(geometry, cmfd, gridsize=500)
 #plotter.plot_flat_source_regions(geometry, gridsize=500)
 #plotter.plot_fluxes(geometry, solver, energy_groups=[1,2,3,4,5,6,7])
-#plotter.plot_mesh_fluxes(mesh, energy_groups=[1,2,3,4,5,6,7])
+#plotter.plot_fission_rates(geometry, solver, gridsize=500)
 
 log.py_printf('TITLE', 'Finished')

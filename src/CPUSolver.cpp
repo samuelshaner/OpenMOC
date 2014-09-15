@@ -590,6 +590,10 @@ FP_PRECISION CPUSolver::computeFSRSources() {
 
   FP_PRECISION inverse_k_eff = 1.0 / _k_eff;
 
+  /* Initialize the source residuals to zero */
+  for (int r=0; r < _num_FSRs; r++)
+    _source_residuals[r] = 0.;
+
   /* For all FSRs, find the source */
   #pragma omp parallel for private(tid, material, nu_sigma_f, chi, \
     sigma_s, sigma_t, fission_source, scatter_source) schedule(guided)
@@ -601,9 +605,6 @@ FP_PRECISION CPUSolver::computeFSRSources() {
     chi = material->getChi();
     sigma_s = material->getSigmaS();
     sigma_t = material->getSigmaT();
-
-    /* Initialize the source residual to zero */
-    _source_residuals[r] = 0.;
 
     /* Compute fission source for each group */
     if (material->isFissionable()) {
@@ -636,17 +637,13 @@ FP_PRECISION CPUSolver::computeFSRSources() {
       _reduced_source(r,G) = _source(r,G) / sigma_t[G];
 
       /* Compute the norm of residual of the source in the FSR */
-      //if (fabs(_source(r,G)) > 1E-10)
-      //  _source_residuals[r] += pow((_source(r,G) - _old_source(r,G))
-      //                          / _source(r,G), 2);
-      if (fabs(fission_source * chi[G]) > 1E-10)
-          _source_residuals[r] += pow((fission_source * chi[G] * ONE_OVER_FOUR_PI - _old_source(r,G))
-                                      / (fission_source * chi[G] * ONE_OVER_FOUR_PI), 2);
-
+      if (fabs(_source(r,G)) > 1E-10)
+        _source_residuals[r] += pow((_source(r,G) - _old_source(r,G))
+                                    / _source(r,G), 2);
 
       /* Update the old source */
-      _old_source(r,G) = fission_source * chi[G] * ONE_OVER_FOUR_PI;
-    }
+      _old_source(r,G) = _source(r,G);              
+    }    
   }
 
   /* Sum up the residuals from each FSR */

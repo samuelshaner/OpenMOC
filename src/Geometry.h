@@ -53,6 +53,8 @@ class Geometry {
 
 private:
 
+  omp_lock_t* _num_FSRs_lock;
+
   /** The minimum point along the x-axis contained by Geometry in cm */
   double _x_min;
 
@@ -88,10 +90,16 @@ private:
   int _num_groups;
 
   /** An map of FSR key hashes to unique fsr_data structs */
-  std::map<std::size_t, fsr_data> _FSR_keys_map;
+  std::vector< std::map<std::size_t, fsr_data> > _FSR_keys_map;
 
   /** An vector of FSR key hashes indexed by FSR ID */
   std::vector<std::size_t> _FSRs_to_keys;
+
+  /** An vector of LU key hashes indexed by FSR ID */
+  std::vector<std::size_t> _FSRs_to_LU_keys;
+
+  /** An map of LU key hashes to pin cell IDs */
+  std::map<std::size_t, int> _LU_keys_to_IDs;
 
   /** A vector of Material IDs indexed by FSR IDs */
   std::vector<int> _FSRs_to_material_IDs;
@@ -119,6 +127,9 @@ private:
 
   /** A CMFD object pointer */
   Cmfd* _cmfd;
+
+  /** A pointer to the lattice used in domain decomposition */
+  Lattice* _domain_lattice;
 
   void initializeCellFillPointers();  
   CellBasic* findFirstCell(LocalCoords* coords, double angle);
@@ -156,19 +167,21 @@ public:
   Universe* getUniverse(int id);
   Lattice* getLattice(int id);
   Cmfd* getCmfd();
-  std::map<std::size_t, fsr_data> getFSRKeysMap();
+  std::vector< std::map<std::size_t, fsr_data> > getFSRKeysMap();
   std::vector<std::size_t> getFSRsToKeys();
   std::vector<int> getFSRsToMaterials();
   int getFSRId(LocalCoords* coords);
   Point* getFSRPoint(int fsr_id);
   std::string getFSRKey(LocalCoords* coords);
+  std::string getLUKey(LocalCoords* coords);
 
   /* Set parameters */
-  void setFSRKeysMap(std::map<std::size_t, fsr_data> FSR_keys_map);
+  void setFSRKeysMap(std::vector< std::map<std::size_t, fsr_data> > FSR_keys_map);
   void setFSRsToMaterials(std::vector<int> FSRs_to_material_IDs);
   void setFSRsToKeys(std::vector<std::size_t> FSRs_to_keys);
   void setNumFSRs(int num_fsrs);
   void setCmfd(Cmfd* cmfd);
+  void setDomainLattice(Lattice* lattice);
 
   /* Add object methods */
   void addMaterial(Material* material);
@@ -186,6 +199,7 @@ public:
   /* Find methods */
   CellBasic* findCellContainingCoords(LocalCoords* coords);
   Material* findFSRMaterial(int fsr_id);
+  int findFSRLU(int fsr_id);
   int findFSRId(LocalCoords* coords);
 
   /* Other worker methods */
@@ -196,6 +210,7 @@ public:
   std::string toString();
   void printString();
   void initializeCmfd();
+  void initializeLUToPinCellMap();
 
 };
 

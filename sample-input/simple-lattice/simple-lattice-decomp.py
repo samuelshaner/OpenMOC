@@ -47,7 +47,7 @@ planes.append(YPlane(y=2.0))
 circles.append(Circle(x=0.0, y=0.0, radius=0.4))
 circles.append(Circle(x=0.0, y=0.0, radius=0.3))
 circles.append(Circle(x=0.0, y=0.0, radius=0.2))
-for plane in planes: plane.setBoundaryType(REFLECTIVE)
+for plane in planes: plane.setBoundaryType(VACUUM)
 
 
 ###############################################################################
@@ -97,7 +97,11 @@ lattice.setLatticeCells([[1, 2, 1, 2],
 
 log.py_printf('NORMAL', 'Creating geometry...')
 
+cmfd = Cmfd()
+cmfd.setLatticeStructure(4,4)
+
 geometry = Geometry()
+geometry.setCmfd(cmfd)
 for material in materials.values(): geometry.addMaterial(material)
 for cell in cells: geometry.addCell(cell)
 geometry.addLattice(lattice)
@@ -112,16 +116,18 @@ geometry.initializeFlatSourceRegions()
 log.py_printf('NORMAL', 'Initializing the track generator...')
 
 track_generator = ModularTrackGenerator(geometry, num_azim, track_spacing)
-track_generator.setLatticeStructure(1,1)
+track_generator.setLatticeStructure(4,4)
 track_generator.generateTracks()
 
-plotter.plot_segments(track_generator)
+#plotter.plot_materials(geometry, gridsize=500)
+#plotter.plot_segments(track_generator)
 
 ###############################################################################
 ###########################   Running a Simulation   ##########################
 ###############################################################################
 
 solver = ModularCPUSolver(geometry, track_generator)
+solver.setHalfUpdate(False)
 solver.setNumThreads(num_threads)
 solver.setSourceConvergenceThreshold(tolerance)
 solver.convergeSource(max_iters)
@@ -132,11 +138,10 @@ solver.printTimerReport()
 ############################   Generating Plots   #############################
 ###############################################################################
 
-#log.py_printf('NORMAL', 'Plotting data...')
+log.py_printf('NORMAL', 'Plotting data...')
 
-#plotter.plot_tracks(track_generator)
+plotter.plot_tracks(track_generator)
 #plotter.plot_segments(track_generator)
-#plotter.plot_materials(geometry, gridsize=500)
 #plotter.plot_cells(geometry, gridsize=500)
 #plotter.plot_flat_source_regions(geometry, gridsize=500)
 #plotter.plot_fluxes(geometry, solver, energy_groups=[1,2,3,4,5,6,7])
