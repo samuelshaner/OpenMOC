@@ -188,8 +188,8 @@ void Cmfd::computeXS(){
 
   /* Loop over cmfd cells */
   #pragma omp parallel for private(volume, flux, abs, tot, nu_fis, chi, \
-    dif_coef, scat, abs_tally, nu_fis_tally, dif_tally, rxn_tally,  \
-    vol_tally, tot_tally, scat_tally, fsr_material, cell_material, \
+    dif_coef, scat, abs_tally, nu_fis_tally, dif_tally, rxn_tally,    \
+    vol_tally, tot_tally, scat_tally, fsr_material, cell_material,    \
     neut_prod_tally, chi_tally)
   for (int i = 0; i < _num_x * _num_y; i++){
 
@@ -321,7 +321,7 @@ void Cmfd::computeDs(){
 
   /* Loop over mesh cells in y direction */
   #pragma omp parallel for private(d, d_next, d_hat, d_tilde, current, flux, \
-    flux_next, f, f_next, length, length_perpen, next_length_perpen, \
+    flux_next, f, f_next, length, length_perpen, next_length_perpen,  \
     sense, next_surface, cell, cell_next)
   for (int y = 0; y < _num_y; y++){
 
@@ -342,7 +342,7 @@ void Cmfd::computeDs(){
           cell_next = getCellNext(cell, surface);
 
           /* Set halfspace sense of the Surface */
-          if (surface == 0 || surface == 3)
+          if (surface == 0 || surface == 1)
             sense = -1.0;
           else
             sense = 1.0;
@@ -613,7 +613,7 @@ void Cmfd::linearSolve(FP_PRECISION** mat, FP_PRECISION* vec_x,
 
     /* Loop over cells in red-black ordering scheme */
     for (int color = 0; color < 2; color++){
-      #pragma omp parallel for private(row, val, cell)
+        #pragma omp parallel for private(row, val, cell)
       for (int y = 0; y < _num_y; y++){
         for (int x = abs(color - y % 2); x < _num_x; x += 2){
 
@@ -797,7 +797,7 @@ void Cmfd::constructMatrices(){
 
         /* Set transport term on diagonal */
         value = (material->getDifHat()[1*_num_cmfd_groups + e]
-                - material->getDifTilde()[1*_num_cmfd_groups + e])
+                + material->getDifTilde()[1*_num_cmfd_groups + e])
                 * _cell_width;
 
         _A[cell][e*(_num_cmfd_groups+4)+e+2] += value;
@@ -805,7 +805,7 @@ void Cmfd::constructMatrices(){
         /* Set transport term on off diagonal */
         if (y != 0){
           value = - (material->getDifHat()[1*_num_cmfd_groups + e]
-                  + material->getDifTilde()[1*_num_cmfd_groups + e])
+                  - material->getDifTilde()[1*_num_cmfd_groups + e])
               * _cell_width;
 
           _A[cell][e*(_num_cmfd_groups+4)+1] += value;
@@ -815,15 +815,15 @@ void Cmfd::constructMatrices(){
 
         /* Set transport term on diagonal */
         value = (material->getDifHat()[3*_num_cmfd_groups + e]
-                + material->getDifTilde()[3*_num_cmfd_groups + e])
+                - material->getDifTilde()[3*_num_cmfd_groups + e])
             * _cell_width;
 
         _A[cell][e*(_num_cmfd_groups+4)+e+2] += value;
 
         /* Set transport term on off diagonal */
         if (y != _num_y - 1){
-          value = - (material->getDifHat()[3*_num_cmfd_groups + e]
-                  - material->getDifTilde()[3*_num_cmfd_groups + e])
+          value = -(material->getDifHat()[3*_num_cmfd_groups + e]
+                  + material->getDifTilde()[3*_num_cmfd_groups + e])
                   * _cell_width;
 
           _A[cell][e*(_num_cmfd_groups+4)+_num_cmfd_groups+3] += value;
@@ -1647,4 +1647,15 @@ void Cmfd::setPolarQuadrature(quadratureType quadrature_type, int num_polar) {
     delete _quad;
 
   _quad = new Quadrature(quadrature_type, num_polar);
+}
+
+
+/**
+ * @brief Sets the type of polar angle quadrature set to use (ie, TABUCHI
+ *        or LEONARD).
+ * @param quadrature_type the polar angle quadrature type
+ * @param num_polar the number of polar angles
+ */
+void Cmfd::setModularTracks(std::vector< std::vector< std::vector<Track*> > > modular_tracks){
+  _modular_tracks = modular_tracks;
 }

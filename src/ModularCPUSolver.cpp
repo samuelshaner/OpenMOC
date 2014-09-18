@@ -564,15 +564,12 @@ FP_PRECISION ModularCPUSolver::computeFSRSources() {
   FP_PRECISION source_residual = 0.0;
 
   FP_PRECISION inverse_k_eff = 1.0 / _k_eff;
-  int source = 2;
 
   /* Initialize the source residuals to zero */
   for (int r=0; r < _num_FSRs; r++)
     _source_residuals[r] = 0.;
 
   /* For all FSRs, find the source */
-  #pragma omp parallel for private(tid, material, nu_sigma_f, chi, \
-    sigma_s, sigma_t, fission_source, scatter_source) schedule(guided)
   for (int r=0; r < _num_FSRs; r++) {
 
     tid = omp_get_thread_num();
@@ -611,57 +608,30 @@ FP_PRECISION ModularCPUSolver::computeFSRSources() {
                       ONE_OVER_FOUR_PI;
 
       _reduced_source(r,G) = _source(r,G) / sigma_t[G];
-
-      /* Compute the norm of residual of the source in the FSR */
-      if (source == 0){
-        if (fabs(_source(r,G)) > 1E-10)
-          _source_residuals[r] += pow((_source(r,G) - _old_source(r,G))
-                                      / _source(r,G), 2);
-
-        /* Update the old source */
-        _old_source(r,G) = _source(r,G);              
-      }
     }
     
-    if (source == 1){
-      if (fabs(fission_source) > 1E-10)
-        _source_residuals[r] += pow((fission_source - _old_source(r,0))
-                                    / (fission_source), 2);
-      
-      /* Update the old source */
-      _old_source(r,0) = fission_source;      
-    }
-    else if (source == 2){
-      if (fission_source > 1E-10){
-        int pin_id = _geometry->findFSRLU(r);
-        _source_residuals[pin_id] += fission_source * _FSR_volumes[r];
-      }      
+    if (fission_source > 0.){
+      int pin_id = _geometry->findFSRLU(r);
+      _source_residuals[pin_id] += fission_source;
     }
   }
 
   int num_pins = 0;
 
-  if (source == 2){
-    for (int r=0; r < _num_FSRs; r++) {
-      if (_source_residuals[r] > 1E-10){
-        num_pins++;
-        FP_PRECISION old_source = _source_residuals[r];
-        _source_residuals[r] = pow((_source_residuals[r] - _old_source(r,0))
-                                   / (_source_residuals[r]), 2);
+  for (int r=0; r < _num_FSRs; r++) {
+    if (_source_residuals[r] > 0.){
+      num_pins++;
+      FP_PRECISION old_source = _source_residuals[r];
+      _source_residuals[r] = pow((_source_residuals[r] - _old_source(r,0))
+                                 / (_source_residuals[r]), 2);
 
-        _old_source(r,0) = old_source;
-      }
+      _old_source(r,0) = old_source;
     }    
   }
 
   /* Sum up the residuals from each FSR */
   source_residual = pairwise_sum<FP_PRECISION>(_source_residuals, _num_FSRs);
-  if (source == 0)
-    source_residual = sqrt(source_residual / (_num_FSRs * _num_groups));
-  else if (source == 1)
-    source_residual = sqrt(source_residual / _num_FSRs);
-  else if (source == 2)
-    source_residual = sqrt(source_residual / num_pins);
+  source_residual = sqrt(source_residual / num_pins);
 
   return source_residual;
 }

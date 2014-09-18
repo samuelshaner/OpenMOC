@@ -26,6 +26,7 @@
 #include "Universe.h"
 #include "cmfd_linear_algebra.h"
 #include "pairwise_sum.h"
+#include "Track.h"
 #endif
 
 
@@ -36,6 +37,9 @@
 class Cmfd {
 
 private:
+
+  /** 3D array of modular tracks */
+  std::vector< std::vector< std::vector<Track*> > > _modular_tracks;
 
   /** Pointer to polar Quadrature object */
   Quadrature* _quad;
@@ -201,6 +205,7 @@ public:
   void setFSRVolumes(FP_PRECISION* FSR_volumes);
   void setFSRFluxes(FP_PRECISION* scalar_flux);
   void setCellFSRs(std::vector< std::vector<int> > cell_fsrs);
+  void setModularTracks(std::vector< std::vector< std::vector<Track*> > > modular_tracks);
 };
 
 #endif /* CMFD_H_ */

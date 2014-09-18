@@ -319,7 +319,9 @@ log.py_printf('NORMAL', 'Creating Cmfd mesh...')
 
 cmfd = Cmfd()
 cmfd.setLatticeStructure(51,51)
-cmfd.setGroupStructure([1,4,8])
+cmfd.setSORRelaxationFactor(1.5)
+cmfd.setMOCRelaxationFactor(1.0)
+#cmfd.setGroupStructure([1,4,8])
 
 ###############################################################################
 ##########################   Creating the Geometry   ##########################
