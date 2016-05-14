@@ -599,12 +599,27 @@ void VectorizedSolver::computeExponentials(segment* curr_segment,
 
   /* Evaluate the exponentials using the linear interpolation table */
   if (_exp_evaluator->isUsingInterpolation()) {
-    FP_PRECISION tau;
+
+    FP_PRECISION tau, dt, dt2;
+    int exp_index;
+    FP_PRECISION inv_spacing = _exp_evaluator->getInverseTableSpacing();
+    FP_PRECISION spacing = _exp_evaluator->getTableSpacing();
 
     for (int e=0; e < _num_groups; e++) {
-      tau = length * sigma_t[e];
-      for (int p=0; p < _num_polar; p++)
-        exponentials(p,e) = _exp_evaluator->computeExponential(tau, p);
+
+      /* Compute the optical length */
+      tau = sigma_t[e] * length;
+
+      /* Get the location of the optical length in the exp look-up table */
+      exp_index = floor(tau * inv_spacing);
+
+      /* Compute the distance and distance squared from the optical length to the
+       * nearest tau in the table */
+      dt = tau - exp_index * spacing;
+      dt2 = dt * dt;
+
+       for (int p=0; p < _num_polar; p++)
+         exponentials(p,e) = _exp_evaluator->computeExponentialF1(exp_index, dt, dt2);
     }
   }
 
@@ -612,7 +627,7 @@ void VectorizedSolver::computeExponentials(segment* curr_segment,
   else {
 
     int tid = omp_get_thread_num();
-    FP_PRECISION* sin_thetas = _polar_quad->getSinThetas();
+    FP_PRECISION* inv_sin_thetas = _polar_quad->getSinThetas();
     FP_PRECISION* taus = &_thread_taus[tid*_polar_times_groups];
 
     /* Initialize the tau argument for the exponentials */
@@ -626,7 +641,7 @@ void VectorizedSolver::computeExponentials(segment* curr_segment,
 
 #pragma simd vectorlength(VEC_LENGTH)
         for (int e=v*VEC_LENGTH; e < (v+1)*VEC_LENGTH; e++)
-          taus(p,e) /= sin_thetas[p];
+          taus(p,e) *= inv_sin_thetas[p];
       }
     }
 

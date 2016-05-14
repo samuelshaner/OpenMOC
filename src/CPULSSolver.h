@@ -45,7 +45,7 @@ protected:
   FP_PRECISION* _sin_phi;
 
   /** Array of cos(phi) */
-  double* _cos_phi;
+  FP_PRECISION* _cos_phi;
 
   /** Array of sin(theta) */
   FP_PRECISION* _sin_thetas;

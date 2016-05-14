@@ -307,8 +307,7 @@ void ExpEvaluator::initialize() {
  */
 FP_PRECISION ExpEvaluator::computeExponentialG2(FP_PRECISION tau, int polar) {
 
-  tau = std::max(tau, 1.e-10);
-
+  tau = std::max(tau, FP_PRECISION(1.e-10));
 
   if (tau == 0.0)
     return 0.0;

@@ -153,6 +153,7 @@ class configuration:
                      'src/ExpEvaluator.cpp',
                      'src/Solver.cpp',
                      'src/CPUSolver.cpp',
+                     'src/CPULSSolver.cpp',
                      'src/VectorizedSolver.cpp',
                      'src/Surface.cpp',
                      'src/Timer.cpp',
@@ -208,10 +209,10 @@ class configuration:
                              '-Qunused-arguments',
                              '-Wno-deprecated-register',
                              '-Wno-parentheses-equality']
-  compiler_flags['icpc'] =['-c', '-O3', '-fast', '--ccache-skip',
+  compiler_flags['icpc'] =['-c', '-O3', '--ccache-skip',
                            '-openmp', '-xhost', '-std=c++11',
-                           '--ccache-skip', '-fpic',
-                           '-openmp-report', '-vec-report']
+                           '-fpic',
+                           '-openmp-report1', '-vec_report5']
   compiler_flags['bgxlc'] = ['-c', '-O2', '-qarch=qp', '-qreport',
                              '-qsimd=auto', '-qtune=qp', '-qunroll=auto',
                              '-qsmp=omp', '-qpic']
@@ -231,19 +232,18 @@ class configuration:
   if ('macosx' in get_platform()):
     linker_flags['gcc'] = ['-fopenmp', '-dynamiclib', '-lpython2.7',
                            '-Wl,-install_name,' + get_openmoc_object_name()]
+    linker_flags['clang'] = ['-fopenmp', '-dynamiclib', '-lpython2.7',
+                             '-Wl,-install_name,' + get_openmoc_object_name()]
+    linker_flags['icpc'] = [ '-fopenmp', '-dynamiclib', '-lpython2.7',
+                             '-Wl,-install_name,' + get_openmoc_object_name()]
   else:
     linker_flags['gcc'] = ['-fopenmp', '-shared',
                            '-Wl,-soname,' + get_openmoc_object_name()]
-
-  if ('macosx' in get_platform()):
-    linker_flags['clang'] = ['-fopenmp', '-dynamiclib', '-lpython2.7',
-                             '-Wl,-install_name,' + get_openmoc_object_name()]
-  else:
     linker_flags['clang'] = ['-fopenmp', '-shared',
                              '-Wl,-soname,' + get_openmoc_object_name()]
+    linker_flags['icpc'] = [ '-openmp', '-shared',
+                             '-Xlinker', '-soname=' + get_openmoc_object_name()]
 
-  linker_flags['icpc'] = [ '-openmp', '-shared',
-                           '-Xlinker', '-soname=' + get_openmoc_object_name()]
   linker_flags['bgxlc'] = ['-qmkshrobj', '-shared',
                            '-R/soft/compilers/ibmcmp-may2013/lib64/bg/bglib64',
                            '-Wl,-soname,' + get_openmoc_object_name()]
@@ -260,7 +260,7 @@ class configuration:
   shared_libraries['gcc'] = ['stdc++', 'gomp', 'dl','pthread', 'm']
   shared_libraries['clang'] = ['stdc++', 'gomp', 'dl','pthread', 'm']
   shared_libraries['icpc'] = ['stdc++', 'iomp5', 'pthread', 'irc',
-                              'imf','rt', 'mkl_rt','m',]
+                              'imf','mkl_rt','m',]
   shared_libraries['bgxlc'] = ['stdc++', 'pthread', 'm', 'xlsmp', 'rt']
   shared_libraries['nvcc'] = ['cudadevrt', 'cudart']
 

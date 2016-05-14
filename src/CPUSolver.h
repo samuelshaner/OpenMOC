@@ -103,7 +103,7 @@ public:
 
   void computeFSRFissionRates(double* fission_rates, int num_FSRs);
 
-  FP_PRECISION getFluxByCoords(LocalCoords* coords, int group);
+  virtual FP_PRECISION getFluxByCoords(LocalCoords* coords, int group);
 };
 
 
