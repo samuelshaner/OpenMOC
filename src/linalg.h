@@ -30,7 +30,7 @@ void linearSolve(Matrix* A, Matrix* M, Vector* X, Vector* B, FP_PRECISION tol,
                  FP_PRECISION SOR_factor=1.5);
 void matrixMultiplication(Matrix* A, Vector* X, Vector* B);
 FP_PRECISION computeRMSE(Vector* x, Vector* y, bool integrated);
-
+int factorial(int n);
 
 /**
  * @brief Transpose a 2D matrix.

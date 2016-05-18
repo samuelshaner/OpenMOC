@@ -65,6 +65,7 @@ Material::Material(int id, const char* name) {
 
   /* Initialize a dummy number groups */
   _num_groups = -1;
+  _num_moments = -1;
 
   _sigma_t = NULL;
   _sigma_s = NULL;
@@ -94,8 +95,11 @@ Material::~Material() {
     if (_sigma_t != NULL)
       MM_FREE(_sigma_t);
 
-    if (_sigma_s != NULL)
+    if (_sigma_s != NULL) {
+      for (int m=0; m < _num_moments; m++)
+        MM_FREE(_sigma_s[m]);
       MM_FREE(_sigma_s);
+    }
 
     if (_sigma_f != NULL)
       MM_FREE(_sigma_f);
@@ -115,8 +119,11 @@ Material::~Material() {
     if (_sigma_t != NULL)
       delete [] _sigma_t;
 
-    if (_sigma_s != NULL)
+    if (_sigma_s != NULL) {
+      for (int m=0; m < _num_moments; m++)
+        delete [] _sigma_s[m];
       delete [] _sigma_s;
+    }
 
     if (_sigma_f != NULL)
       delete [] _sigma_f;
@@ -183,6 +190,15 @@ int Material::getNumEnergyGroups() const {
 
 
 /**
+ * @brief Returns the number of Legendre moments for this Material's nuclear data.
+ * @return the number of Legendre moments
+ */
+int Material::getNumLegendreMoments() const {
+  return _num_moments;
+}
+
+
+/**
  * @brief Return the array of the Material's total cross-sections.
  * @return the pointer to the Material's array of total cross-sections
  */
@@ -199,12 +215,16 @@ FP_PRECISION* Material::getSigmaT() {
  * @brief Return the array of the Material's scattering cross-section matrix.
  * @return the pointer to the Material's array of scattering cross-sections
  */
-FP_PRECISION* Material::getSigmaS() {
+FP_PRECISION* Material::getSigmaS(int moment) {
   if (_sigma_s == NULL)
     log_printf(ERROR, "Unable to return Material %d's scattering "
                "cross-section since it has not yet been set", _id);
+  else if (moment < 0 || moment >= _num_moments)
+    log_printf(ERROR, "Unable to return Material %d's scattering "
+               "cross-section for Legendre moment %d because the Legendre "
+               "moments span from 0 to %d", _id, moment, _num_moments-1);
 
-  return _sigma_s;
+  return _sigma_s[moment];
 }
 
 
@@ -286,7 +306,8 @@ FP_PRECISION Material::getSigmaTByGroup(int group) {
  * @param destination the outgoing energy group
  * @return the scattering cross section
  */
-FP_PRECISION Material::getSigmaSByGroup(int origin, int destination) {
+FP_PRECISION Material::getSigmaSByGroup(int origin, int destination,
+                                        int moment) {
   if (_sigma_s == NULL)
     log_printf(ERROR, "Unable to return Material %d's scattering "
                "cross section since it has not yet been set", _id);
@@ -296,8 +317,13 @@ FP_PRECISION Material::getSigmaSByGroup(int origin, int destination) {
     log_printf(ERROR, "Unable to get sigma_s for group %d,%d for Material %d "
                "which contains %d energy groups",
                origin, destination, _id, _num_groups);
+  else if (moment < 0 || moment >= _num_moments)
+    log_printf(ERROR, "Unable to get sigma_s for group %d,%d for Material %d "
+               "and Legendre moment %d because the Legendre "
+               "moments span from 0 to %d", origin, destination, _id, moment,
+               _num_moments-1);
 
-  return _sigma_s[(destination-1)*_num_groups + (origin-1)];
+  return _sigma_s[moment][(destination-1)*_num_groups + (origin-1)];
 }
 
 
@@ -467,13 +493,15 @@ void Material::incrementNumInstances() {
  * @brief Set the number of energy groups for this Material.
  * @param num_groups the number of energy groups.
  */
-void Material::setNumEnergyGroups(const int num_groups) {
+void Material::setNumEnergyGroups(const int num_groups, const int num_moments) {
 
   if (num_groups < 0)
     log_printf(ERROR, "Unable to set the number of energy groups for "
                "material %d to %d", _id, num_groups);
 
-  _num_groups = num_groups;
+  if (num_moments < 1 || num_moments > 5)
+    log_printf(ERROR, "Unable to set the number of Legendre moments "
+               "to %d because it must be between 1 and 5", num_moments);
 
   /* Free old data arrays if they were allocated for a previous simulation */
 
@@ -482,8 +510,11 @@ void Material::setNumEnergyGroups(const int num_groups) {
     if (_sigma_t != NULL)
       MM_FREE(_sigma_t);
 
-    if (_sigma_s != NULL)
+    if (_sigma_s != NULL) {
+      for (int m=0; m < _num_moments; m++)
+        MM_FREE(_sigma_s[m]);
       MM_FREE(_sigma_s);
+    }
 
     if (_sigma_f != NULL)
       MM_FREE(_sigma_f);
@@ -500,8 +531,11 @@ void Material::setNumEnergyGroups(const int num_groups) {
     if (_sigma_t != NULL)
       delete [] _sigma_t;
 
-    if (_sigma_s != NULL)
+    if (_sigma_s != NULL) {
+      for (int m=0; m < _num_moments; m++)
+        delete [] _sigma_s[m];
       delete [] _sigma_s;
+    }
 
     if (_sigma_f != NULL)
       delete [] _sigma_f;
@@ -513,19 +547,25 @@ void Material::setNumEnergyGroups(const int num_groups) {
       delete [] _chi;
   }
 
+  _num_groups = num_groups;
+  _num_moments = num_moments;
+
   /* Allocate memory for data arrays */
   _sigma_t = new FP_PRECISION[_num_groups];
   _sigma_f = new FP_PRECISION[_num_groups];
   _nu_sigma_f = new FP_PRECISION[_num_groups];
   _chi = new FP_PRECISION[_num_groups];
-  _sigma_s = new FP_PRECISION[_num_groups*_num_groups];
+  _sigma_s = new FP_PRECISION*[_num_moments];
+  for (int m=0; m < _num_moments; m++)
+    _sigma_s[m] = new FP_PRECISION[_num_groups*_num_groups];
 
   /* Assign the null vector to each data array */
   memset(_sigma_t, 0.0, sizeof(FP_PRECISION) * _num_groups);
   memset(_sigma_f, 0.0, sizeof(FP_PRECISION) * _num_groups);
   memset(_nu_sigma_f, 0.0, sizeof(FP_PRECISION) * _num_groups);
   memset(_chi, 0.0, sizeof(FP_PRECISION) * _num_groups);
-  memset(_sigma_s, 0.0, sizeof(FP_PRECISION) * _num_groups * _num_groups);
+  for (int m=0; m < _num_moments; m++)
+    memset(_sigma_s[m], 0.0, sizeof(FP_PRECISION) * _num_groups * _num_groups);
 }
 
 
@@ -641,14 +681,17 @@ void Material::setSigmaTByGroup(double xs, int group) {
  */
 void Material::setSigmaS(double* xs, int num_groups_squared) {
 
-  if (_num_groups*_num_groups != num_groups_squared)
-    log_printf(ERROR, "Unable to set sigma_s with %f groups for Material %d "
-               "which contains %d energy groups",
-                float(sqrt(num_groups_squared)), _id, _num_groups);
+  if (_num_groups*_num_groups*_num_moments != num_groups_squared)
+    log_printf(ERROR, "Unable to set sigma_s with %d groups*groups*moments for "
+               "Material %d which contains %d energy groups and %d moments",
+               num_groups_squared, _id, _num_groups, _num_moments);
 
-  for (int dest=0; dest < _num_groups; dest++) {
-    for (int orig=0; orig < _num_groups; orig++)
-      _sigma_s[dest*_num_groups+orig] = xs[orig*_num_groups+dest];
+  for (int m=0; m < _num_moments; m++) {
+    for (int dest=0; dest < _num_groups; dest++) {
+      for (int orig=0; orig < _num_groups; orig++)
+        _sigma_s[m][dest * _num_groups + orig] =
+            xs[(m * _num_groups + orig) * _num_groups + dest];
+    }
   }
 }
 
@@ -659,14 +702,20 @@ void Material::setSigmaS(double* xs, int num_groups_squared) {
  * @param origin the column index in the scattering matrix
  * @param destination the row index in the scattering matrix
  */
-void Material::setSigmaSByGroup(double xs, int origin, int destination) {
+void Material::setSigmaSByGroup(double xs, int origin, int destination,
+                                int moment) {
 
   if (origin <= 0 || destination <= 0 || origin > _num_groups || destination > _num_groups)
     log_printf(ERROR, "Unable to set sigma_s for group %d -> %d for Material %d "
                "which contains %d energy groups",
                origin, destination, _id, _num_groups);
+  else if (moment < 0 || moment >= _num_moments)
+    log_printf(ERROR, "Unable to set sigma_s for group %d -> %d for Material %d"
+               " and Legendre moment %d because the Legendre "
+               "moments span from 0 to %d", origin, destination, _id, moment,
+               _num_moments-1);
 
-  _sigma_s[_num_groups*(destination-1) + (origin-1)] = xs;
+  _sigma_s[moment][_num_groups*(destination-1) + (origin-1)] = xs;
 }
 
 
@@ -927,7 +976,9 @@ void Material::alignData() {
   size = _num_vector_groups * VEC_LENGTH * _num_vector_groups;
   size *= VEC_LENGTH * sizeof(FP_PRECISION);
   FP_PRECISION* new_fiss_matrix = (FP_PRECISION*)MM_MALLOC(size, VEC_ALIGNMENT);
-  FP_PRECISION* new_sigma_s = (FP_PRECISION*)MM_MALLOC(size, VEC_ALIGNMENT);
+  FP_PRECISION** new_sigma_s = (FP_PRECISION**)MM_MALLOC(_num_moments, VEC_ALIGNMENT);
+  for (int m=0; m < _num_moments; m++)
+    new_sigma_s[m] = (FP_PRECISION*)MM_MALLOC(size, VEC_ALIGNMENT);
 
   /* Initialize data structures to ones for sigma_t since it is used to
    * divide the source in the solver, and zeroes for everything else */
@@ -941,7 +992,8 @@ void Material::alignData() {
 
   size *= _num_vector_groups * VEC_LENGTH;
   memset(new_fiss_matrix, 0.0, size);
-  memset(new_sigma_s, 0.0, size);
+  for (int m=0; m < _num_moments; m++)
+    memset(new_sigma_s[m], 0.0, size);
 
   /* Copy materials data from unaligned arrays into new aligned arrays */
   size = _num_groups * sizeof(FP_PRECISION);
@@ -952,19 +1004,24 @@ void Material::alignData() {
 
   for (int e=0; e < _num_groups; e++) {
     memcpy(new_fiss_matrix, _fiss_matrix, size);
-    memcpy(new_sigma_s, _sigma_s, size);
     new_fiss_matrix += _num_vector_groups * VEC_LENGTH;
-    new_sigma_s += _num_vector_groups * VEC_LENGTH;
     _fiss_matrix += _num_groups;
-    _sigma_s += _num_groups;
+
+    for (int m=0; m < _num_moments; m++) {
+      memcpy(new_sigma_s[m], _sigma_s[m], size);
+      new_sigma_s[m] += _num_vector_groups * VEC_LENGTH;
+      _sigma_s[m] += _num_groups;
+    }
   }
 
   _fiss_matrix -= _num_groups * _num_groups;
-  _sigma_s -= _num_groups * _num_groups;
+  for (int m=0; m < _num_moments; m++)
+    _sigma_s[m] -= _num_groups * _num_groups;
 
   /* Reset the new fission / scattering matrix array pointers */
   new_fiss_matrix -= _num_vector_groups * VEC_LENGTH * _num_groups;
-  new_sigma_s -= _num_vector_groups * VEC_LENGTH * _num_groups;
+  for (int m=0; m < _num_moments; m++)
+    new_sigma_s[m] -= _num_vector_groups * VEC_LENGTH * _num_groups;
 
   /* Delete the old unaligned arrays */
   delete [] _sigma_t;
@@ -972,6 +1029,8 @@ void Material::alignData() {
   delete [] _nu_sigma_f;
   delete [] _chi;
   delete [] _fiss_matrix;
+  for (int m=0; m < _num_moments; m++)
+    delete [] _sigma_s[m];
   delete [] _sigma_s;
 
   /* Set the material's array pointers to the new aligned arrays */
@@ -1004,8 +1063,10 @@ void Material::transposeProductionMatrices() {
   /* Perform matrix transpose on each matrix that has been allocated */
   if (_fiss_matrix != NULL)
     matrix_transpose<FP_PRECISION>(_fiss_matrix, num_groups, num_groups);
-  if (_sigma_s != NULL)
-    matrix_transpose<FP_PRECISION>(_sigma_s, num_groups, num_groups);
+  if (_sigma_s != NULL) {
+    for (int m=0; m < _num_moments; m++)
+      matrix_transpose<FP_PRECISION>(_sigma_s[m], num_groups, num_groups);
+  }
 }
 
 
@@ -1019,7 +1080,7 @@ Material* Material::clone() {
 
   /* Set the number of groups if this Material's groups have been set */
   if (_num_groups > 0)
-    clone->setNumEnergyGroups(_num_groups);
+    clone->setNumEnergyGroups(_num_groups, _num_moments);
 
   for (int i=0; i < _num_groups; i++) {
     clone->setSigmaTByGroup((double)_sigma_t[i], i+1);
@@ -1027,8 +1088,10 @@ Material* Material::clone() {
     clone->setNuSigmaFByGroup((double)_nu_sigma_f[i], i+1);
     clone->setChiByGroup((double)_chi[i], i+1);
 
-    for (int j=0; j < _num_groups; j++)
-      clone->setSigmaSByGroup((double)getSigmaSByGroup(i+1,j+1), i+1, j+1);
+    for (int m=0; m < _num_moments; m++) {
+      for (int j=0; j < _num_groups; j++)
+        clone->setSigmaSByGroup((double)getSigmaSByGroup(i+1,j+1, m), i+1, j+1, m);
+    }
   }
 
   if (_fiss_matrix != NULL)
@@ -1072,9 +1135,12 @@ std::string Material::toString() {
 
   if (_sigma_s != NULL) {
     string << "\n\t\tSigma_s = \n\t\t";
-    for (int G = 0; G < _num_groups; G++) {
-      for (int g = 0; g < _num_groups; g++)
-        string << _sigma_s[G+g*_num_groups] << "\t\t ";
+    for (int m = 0; m < _num_moments; m++) {
+      for (int G = 0; G < _num_groups; G++) {
+        for (int g = 0; g < _num_groups; g++)
+          string << _sigma_s[m][G+g*_num_groups] << "\t\t ";
+        string << "\n\t\t";
+      }
       string << "\n\t\t";
     }
   }

@@ -105,6 +105,10 @@ def load_from_hdf5(filename='mgxs.h5', directory='mgxs',
     materials = {}
     old_materials = {}
     num_groups = int(f.attrs['# groups'])
+    if '# moments' in f.attrs:
+        num_moments = int(f.attrs['# moments'])
+    else:
+        num_moments = 1
 
     # If a Geometry was passed in, extract all cells or materials from it
     if geometry:
@@ -173,7 +177,7 @@ def load_from_hdf5(filename='mgxs.h5', directory='mgxs',
 
         # Add material to the collection
         materials[domain_spec] = material
-        material.setNumEnergyGroups(num_groups)
+        material.setNumEnergyGroups(num_groups, num_moments)
 
         # Search for the total/transport cross section
         if 'transport' in domain_group:
@@ -335,7 +339,7 @@ def load_openmc_mgxs_lib(mgxs_lib, geometry=None):
 
         # Add material to the collection
         materials[domain.id] = material
-        material.setNumEnergyGroups(num_groups)
+        material.setNumEnergyGroups(num_groups, num_moments)
 
         # Search for the total/transport cross section
         if 'transport' in mgxs_lib.mgxs_types:

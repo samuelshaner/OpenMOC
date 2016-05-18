@@ -2296,3 +2296,8 @@ double TrackGenerator::getPhi(int azim) {
   else
     return M_PI + _phi[azim - _num_azim];
 }
+
+
+double* TrackGenerator::getPhis() {
+  return _phi;
+}

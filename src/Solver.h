@@ -23,18 +23,18 @@
 #endif
 
 /** Indexing macro for the scalar flux in each FSR and energy group */
-#define _scalar_flux(r,e) (_scalar_flux[(r)*_num_groups + (e)])
+#define _scalar_flux(r,e,h) (_scalar_flux[((r)*_num_groups + (e))*_num_harmonics + (h)])
 
 /** Indexing macro for the old scalar flux in each FSR and energy group */
-#define _old_scalar_flux(r,e) (_old_scalar_flux[(r)*_num_groups + (e)])
+#define _old_scalar_flux(r,e,h) (_old_scalar_flux[((r)*_num_groups + (e))*_num_harmonics + (h)])
 
 /** Indexing macro for the total source divided by the total cross-section
  *  (\f$ \frac{Q}{\Sigma_t} \f$) in each FSR and energy group */
-#define _reduced_sources(r,e) (_reduced_sources[(r)*_num_groups + (e)])
+#define _reduced_sources(r,e,h) (_reduced_sources[((r)*_num_groups + (e))*_num_harmonics + (h)])
 
 /** Indexing macro for the polar quadrature weights multiplied by the
  *  azimuthal angle quadrature weights */
-#define _polar_weights(i,p) (_polar_weights[(i)*_num_polar + (p)])
+#define _polar_weights(i,p,h) (_polar_weights[((i)*_num_polar + (p))*_num_harmonics + (h)])
 
 /** Indexing macro for the angular fluxes for each polar angle and energy
  *  group for the outgoing reflective track for both the forward and
@@ -52,7 +52,7 @@
 
 /** Indexing scheme for the total scatter source (\f$ Sigma_s\Phi \f$)
  *  for each FSR and energy group */
-#define scatter_sources(r,e) (scatter_sources[(r)*_num_groups + (e)])
+#define scatter_sources(r,e,h) (scatter_sources[((r)*_num_groups + (e))*_num_harmonics + (h)])
 
 
 /**
@@ -101,6 +101,12 @@ protected:
   /** The number of energy groups */
   int _num_groups;
 
+  /** The number of legendre moments */
+  int _num_moments;
+
+  /** The number of spherical harmonics */
+  int _num_harmonics;
+
   /** The number of flat source regions */
   int _num_FSRs;
 
@@ -145,6 +151,9 @@ protected:
 
   /** The weights for each polar angle in the polar angle quadrature */
   FP_PRECISION* _polar_weights;
+
+  /** An array of the inverse of the sin thetas */
+  FP_PRECISION* _inverse_sin_thetas;
 
   /** The angular fluxes for each Track for all energy groups, polar angles,
    *  and azimuthal angles. This array stores the boundary fluxes for a

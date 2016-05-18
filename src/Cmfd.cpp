@@ -32,6 +32,8 @@ Cmfd::Cmfd() {
   _num_moc_groups = 0;
   _num_cmfd_groups = 0;
   _num_polar = 0;
+  _num_moments = 1;
+  _num_harmonics = 1;
 
   /* Set matrices and arrays to NULL */
   _A = NULL;
@@ -1063,6 +1065,11 @@ void Cmfd::setNumMOCGroups(int num_groups) {
   _num_moc_groups = num_groups;
 }
 
+
+void Cmfd::setNumLegendreMoments(int num_moments) {
+  _num_moments = num_moments;
+  _num_harmonics = num_moments * num_moments;
+}
 
 /**
  * @brief Get the number of MOC energy groups.

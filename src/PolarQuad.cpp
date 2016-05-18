@@ -6,11 +6,14 @@
  */
 PolarQuad::PolarQuad() {
   _num_polar = 0;
+  _num_azim = 0;
   _sin_thetas = NULL;
+  _cos_thetas = NULL;
   _inverse_sin_thetas = NULL;
   _weights = NULL;
   _multiples = NULL;
   _quad_type = CUSTOM;
+  _phi = NULL;
 }
 
 
@@ -22,6 +25,9 @@ PolarQuad::~PolarQuad() {
 
   if (_sin_thetas != NULL)
     delete [] _sin_thetas;
+
+  if (_cos_thetas != NULL)
+    delete [] _cos_thetas;
 
   if (_inverse_sin_thetas != NULL)
     delete [] _inverse_sin_thetas;
@@ -41,6 +47,15 @@ PolarQuad::~PolarQuad() {
  */
 int PolarQuad::getNumPolarAngles() const {
   return _num_polar;
+}
+
+
+/**
+ * @brief Returns the number of azim angles.
+ * @return the number of azim angles
+ */
+int PolarQuad::getNumAzimAngles() const {
+  return _num_azim;
 }
 
 
@@ -184,6 +199,25 @@ void PolarQuad::setNumPolarAngles(const int num_polar) {
 
 
 /**
+ * @brief Set the number of azim angles to initialize.
+ * @param num_azim the number of azim angles
+ */
+void PolarQuad::setNumAzimAngles(const int num_azim) {
+
+  if (num_azim <= 0)
+    log_printf(ERROR, "Unable to set the number of azim angles to %d "
+               "which is less than or equal to zero", num_azim);
+
+  _num_azim = num_azim;
+}
+
+
+void PolarQuad::setAzimAngles(double* phi) {
+  _phi = phi;
+}
+
+
+/**
  * @brief Set the PolarQuad's array of sines of each polar angle.
  * @details This method is a helper function to allow OpenMOC users to assign
  *          the PolarQuad's sin thetas in Python. A user must initialize a
@@ -213,11 +247,15 @@ void PolarQuad::setSinThetas(double* sin_thetas, int num_polar) {
   if (_sin_thetas != NULL)
     delete [] _sin_thetas;
 
+  if (_cos_thetas != NULL)
+    delete [] _cos_thetas;
+
   if (_inverse_sin_thetas != NULL)
     delete [] _inverse_sin_thetas;
 
   /* Initialize memory for arrays */
   _sin_thetas = new FP_PRECISION[_num_polar];
+  _cos_thetas = new FP_PRECISION[_num_polar];
   _inverse_sin_thetas = new FP_PRECISION[_num_polar];
 
   /* Extract sin thetas from user input */
@@ -226,6 +264,7 @@ void PolarQuad::setSinThetas(double* sin_thetas, int num_polar) {
       log_printf(ERROR, "Unable to set sin theta to %f which is "
                  "not in the range [0,1]", sin_thetas[p]);
     _sin_thetas[p] = FP_PRECISION(sin_thetas[p]);
+    _cos_thetas[p] = FP_PRECISION(cos(asin(sin_thetas[p])));
     _inverse_sin_thetas[p] = 1.0 / _sin_thetas[p];
   }
 }
@@ -358,6 +397,92 @@ quadratureType PolarQuad::getQuadratureType() {
 }
 
 
+FP_PRECISION PolarQuad::getLegendrePoly(FP_PRECISION mu, int l) {
+
+  FP_PRECISION p0 = 1.0;
+  FP_PRECISION p1 = mu;
+
+  if (l == 0)
+    return p0;
+  else if (l == 1)
+    return p1;
+  else {
+    FP_PRECISION p_2 = p0;
+    FP_PRECISION p_1 = p1;
+    FP_PRECISION pn;
+
+    for (int n = 1; n < l; n++) {
+      pn = (2. * n + 1.) / (n + 1.) * mu * p_1 - n / (n + 1.) * p_2;
+      p_2 = p_1;
+      p_1 = pn;
+    }
+
+    return pn;
+  }
+}
+
+
+FP_PRECISION PolarQuad::getAssociatedLegendrePoly(FP_PRECISION mu, int l, int r) {
+
+  if (r == 0)
+    return getLegendrePoly(mu, l);
+  else {
+
+    FP_PRECISION plr1 = getAssociatedLegendrePoly(mu, l+1, r-1);
+    FP_PRECISION plr2 = getAssociatedLegendrePoly(mu, l, r-1);
+    FP_PRECISION plr =  ((l - r + 2) * plr1 - (l + r) * mu * plr2)
+        / sqrt(1. - mu*mu);
+
+    return plr;
+  }
+}
+
+
+FP_PRECISION PolarQuad::getSphericalHarmonic(int azim, int polar,
+                                             int l, int r) {
+
+  FP_PRECISION sph_harm;
+  FP_PRECISION phi;
+  if (azim < _num_azim)
+    phi = _phi[azim];
+  else
+    phi = _phi[azim - _num_azim] + M_PI;
+
+  FP_PRECISION mu = _cos_thetas[polar];
+
+  if (r > 0)
+    sph_harm = sqrt((2. * l + 1.) / FOUR_PI) *
+        sqrt(2. * factorial(l - r) / factorial(l + r)) *
+        getAssociatedLegendrePoly(mu, l, r) * cos(r * phi);
+  else if (r == 0)
+    sph_harm = sqrt((2. * l + 1) / FOUR_PI) * getLegendrePoly(mu, l);
+  else {
+    r = -r;
+    sph_harm = sqrt((2. * l + 1.) / FOUR_PI) *
+        sqrt(2. * factorial(l - r) / factorial(l + r)) *
+        getAssociatedLegendrePoly(mu, l, r) * sin(r * phi);
+    sph_harm *= pow(-1., r) * factorial(l - r) / factorial(l + r);
+  }
+
+  /* Return the spherical harmonic normalized so R_(0,0) is 1 */
+  return sph_harm * sqrt(FOUR_PI);
+}
+
+
+FP_PRECISION PolarQuad::getAzimAngle(int azim) {
+  return M_PI/4.0;
+}
+
+
+int PolarQuad::getHarmonicIndex(int l, int r) {
+
+  int harmonic = 0;
+  for (int l1 = 0; l1 < l; l1++)
+    harmonic += 2*l1 + 1;
+  harmonic += (r + l);
+
+  return harmonic;
+}
 
 /**
  * @brief Dummy constructor calls the parent constructor.

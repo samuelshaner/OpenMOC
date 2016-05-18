@@ -116,6 +116,7 @@ public:
   /* Get parameters */
   int getNumAzim();
   double getPhi(int azim);
+  double* getPhis();
   double getTrackSpacing();
   Geometry* getGeometry();
   int getNumTracks();

@@ -18,6 +18,7 @@
 #endif
 #include "constants.h"
 #include "log.h"
+#include "linalg.h"
 #include <sstream>
 #endif
 
@@ -50,9 +51,18 @@ protected:
   /** The number of polar angles */
   int _num_polar;
 
+  /** The number of azimuthal angles */
+  int _num_azim;
+
+  /** The number of spherical harmonics to precompute */
+  int _num_harmonics;
+
   /** An array of the sines of quadrature angles */
   FP_PRECISION* _sin_thetas;
+  FP_PRECISION* _cos_thetas;
   FP_PRECISION* _inverse_sin_thetas;
+  FP_PRECISION* _harmonics;
+  double* _phi;
 
   /** An array of the quadrature weights */
   FP_PRECISION* _weights;
@@ -68,6 +78,7 @@ public:
   virtual ~PolarQuad();
 
   int getNumPolarAngles() const;
+  int getNumAzimAngles() const;
   FP_PRECISION getSinTheta(const int n) const;
   FP_PRECISION getInverseSinTheta(const int n) const;
   FP_PRECISION getWeight(const int n) const;
@@ -77,10 +88,17 @@ public:
   FP_PRECISION* getWeights();
   FP_PRECISION* getMultiples();
   quadratureType getQuadratureType();
+  FP_PRECISION getLegendrePoly(FP_PRECISION mu, int l);
+  FP_PRECISION getAssociatedLegendrePoly(FP_PRECISION mu, int l, int r);
+  FP_PRECISION getSphericalHarmonic(int azim, int polar, int l, int r);
+  FP_PRECISION getAzimAngle(int azim);
+  int getHarmonicIndex(int l, int r);
 
   virtual void setNumPolarAngles(const int num_polar);
+  void setNumAzimAngles(const int num_azim);
   void setSinThetas(double* sin_thetas, int num_polar);
   void setWeights(double* weights, int num_polar);
+  void setAzimAngles(double* phi);
 
   virtual void initialize();
 

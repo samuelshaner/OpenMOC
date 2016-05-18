@@ -138,6 +138,7 @@ public:
   Universe* getRootUniverse();
   int getNumFSRs();
   int getNumEnergyGroups();
+  int getNumLegendreMoments();
   int getNumMaterials();
   int getNumCells();
   std::map<int, Material*> getAllMaterials();

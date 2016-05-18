@@ -311,3 +311,12 @@ FP_PRECISION computeRMSE(Vector* X, Vector* Y, bool integrated) {
 
   return rmse;
 }
+
+
+int factorial(int n) {
+
+  if (n <= 1)
+    return 1;
+  else
+    return n * factorial(n - 1);
+}

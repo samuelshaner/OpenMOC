@@ -1003,6 +1003,49 @@ def plot_exp_evaluator(precision=1.e-5, max_tau=10.0, max_g2=0.1):
     plt.savefig('plots/exp_interp.png')
 
 
+def plot_legendre_polys(l=[0], r=[0]):
+
+    global subdirectory, matplotlib_rcparams
+    directory = openmoc.get_output_directory() + subdirectory
+
+    # Ensure that normal settings are used even if called from ipython
+    curr_rc = dict(matplotlib.rcParams)
+    matplotlib.rcParams.update(matplotlib_rcparams)
+
+    # Make directory if it does not exist
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    mu = np.linspace(-1, 1, 1000)
+    polys = []
+    poly_names = []
+
+    polar_quad = openmoc.TYPolarQuad()
+    polar_quad.setNumPolarAngles(3)
+
+    for l1 in l:
+        for r1 in r:
+            if (r1 <= l1):
+                poly_names.append([l1,r1])
+                polys.append([])
+                for mu1 in mu:
+                    polys[-1].append(polar_quad.getAssociatedLegendrePoly(mu1, l1, r1))
+
+    fig = plt.figure(figsize=(9,9))
+    plt.subplot()
+    plt.grid(True)
+    for i,name in enumerate(poly_names):
+        plt.plot(mu, polys[i], label='(' + str(name[0]) + ', ' + str(name[1]) + ')', linewidth=3)
+
+    plt.xlabel('Mu')
+    plt.ylabel('Polynomial Value')
+    plt.xlim([-1,1])
+    plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3,
+                      ncol=4, mode="expand", borderaxespad=0.)
+    plt.gcf().subplots_adjust(top=0.85)
+    plt.savefig('plots/assoc_polys.png')
+
+
 def plot_fission_rates(solver, norm=False, transparent_zeros=True, gridsize=250,
                        xlim=None, ylim=None, get_figure=False,
                        library='matplotlib'):

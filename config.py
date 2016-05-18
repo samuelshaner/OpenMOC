@@ -109,7 +109,6 @@ class configuration:
                     'src/ExpEvaluator.cpp',
                     'src/Solver.cpp',
                     'src/CPUSolver.cpp',
-                    'src/CPULSSolver.cpp',
                     'src/Surface.cpp',
                     'src/Timer.cpp',
                     'src/Track.cpp',

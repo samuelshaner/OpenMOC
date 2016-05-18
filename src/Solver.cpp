@@ -11,6 +11,8 @@ Solver::Solver(TrackGenerator* track_generator) {
   _num_groups = 0;
   _num_azim = 0;
   _num_parallel_track_groups = 0;
+  _num_moments = 1;
+  _num_harmonics = 1;
 
   _num_FSRs = 0;
   _num_fissionable_FSRs = 0;
@@ -26,6 +28,7 @@ Solver::Solver(TrackGenerator* track_generator) {
   _tracks = NULL;
   _polar_weights = NULL;
   _boundary_flux = NULL;
+  _inverse_sin_thetas = NULL;
 
   _scalar_flux = NULL;
   _old_scalar_flux = NULL;
@@ -273,9 +276,9 @@ FP_PRECISION Solver::getFSRSource(int fsr_id, int group) {
   /* Compute total scattering and fission sources for this FSR */
   for (int g=0; g < _num_groups; g++) {
     scatter_source += sigma_s[(group-1)*(_num_groups)+g]
-                      * _scalar_flux(fsr_id,g);
+        * _scalar_flux(fsr_id,g,0);
     fission_source += fiss_mat[(group-1)*(_num_groups)+g]
-                      * _scalar_flux(fsr_id,g);
+        * _scalar_flux(fsr_id,g,0);
   }
 
   fission_source /= _k_eff;
@@ -321,7 +324,7 @@ FP_PRECISION Solver::getFlux(int fsr_id, int group) {
     log_printf(ERROR, "Unable to return a scalar flux "
              "since it has not yet been computed");
 
-  return _scalar_flux(fsr_id,group-1);
+  return _scalar_flux(fsr_id,group-1,0);
 }
 
 
@@ -506,20 +509,30 @@ void Solver::initializePolarQuadrature() {
   /* Initialize the PolarQuad object */
   _polar_quad->setNumPolarAngles(_num_polar);
   _polar_quad->initialize();
+  _polar_quad->setNumAzimAngles(_num_azim);
+  _polar_quad->setAzimAngles(_track_generator->getPhis());
   _polar_times_groups = _num_groups * _num_polar;
+  _inverse_sin_thetas = _polar_quad->getInverseSinThetas();
 
   /* Deallocate polar weights if previously assigned */
   if (_polar_weights != NULL)
     delete [] _polar_weights;
 
-  _polar_weights = new FP_PRECISION[_num_azim*_num_polar];
+  _polar_weights = new FP_PRECISION[_num_azim*2*_num_polar*_num_harmonics];
 
   /* Compute the total azimuthal weight for tracks at each polar angle */
 #pragma omp parallel for schedule(guided)
-  for (int i=0; i < _num_azim; i++) {
-    for (int p=0; p < _num_polar; p++)
-      _polar_weights(i,p) =
-           azim_weights[i] * _polar_quad->getMultiple(p) * FOUR_PI;
+  for (int i=0; i < _num_azim*2; i++) {
+    for (int p=0; p < _num_polar; p++) {
+      for (int l=0; l < _num_moments; l++) {
+        for (int r = -l; r <= l; r++) {
+          int harmonic_index = _polar_quad->getHarmonicIndex(l,r);
+          FP_PRECISION harmonic = _polar_quad->getSphericalHarmonic(i, p, l, r);
+          _polar_weights(i,p,harmonic_index) = FOUR_PI * harmonic *
+              azim_weights[i % _num_azim] * _polar_quad->getMultiple(p);
+        }
+      }
+    }
   }
 }
 
@@ -591,6 +604,8 @@ void Solver::initializeFSRs() {
   /* Retrieve simulation parameters from the Geometry */
   _num_FSRs = _geometry->getNumFSRs();
   _num_groups = _geometry->getNumEnergyGroups();
+  _num_moments = _geometry->getNumLegendreMoments();
+  _num_harmonics = _num_moments * _num_moments;
   _polar_times_groups = _num_groups * _num_polar;
   _num_materials = _geometry->getNumMaterials();
 
@@ -714,6 +729,7 @@ void Solver::initializeCmfd() {
   /* Intialize the CMFD energy group structure */
   _cmfd->setSourceConvergenceThreshold(_converge_thresh*1.e-1);
   _cmfd->setNumMOCGroups(_num_groups);
+  _cmfd->setNumLegendreMoments(_num_moments);
   _cmfd->initializeGroupMap();
 
   /* Give CMFD number of FSRs and FSR property arrays */

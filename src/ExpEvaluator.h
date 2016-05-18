@@ -95,6 +95,7 @@ public:
                                     FP_PRECISION dt2);
   FP_PRECISION computeExponentialH(int index, FP_PRECISION dt,
                                    FP_PRECISION dt2);
+  FP_PRECISION computeExponentialG1(FP_PRECISION tau, int polar);
   FP_PRECISION computeExponentialG2(FP_PRECISION tau, int polar);
 };
 

@@ -218,6 +218,32 @@ int Geometry::getNumEnergyGroups() {
 
 
 /**
+ * @brief Returns the number of Legendre moments for each Material's nuclear data.
+ * @return the number of Legendre moments
+ */
+int Geometry::getNumLegendreMoments() {
+
+  std::map<int, Material*> materials = getAllMaterials();
+
+  if (materials.size() == 0)
+    log_printf(ERROR, "Unable to return the number of Legendre moments from "
+               "the Geometry since it does not contain any Materials");
+
+  int num_moments = materials.begin()->second->getNumLegendreMoments();
+  std::map<int, Material*>::iterator iter;
+
+  for (iter = materials.begin(); iter != materials.end(); ++iter) {
+    if (iter->second->getNumLegendreMoments() != num_moments)
+      log_printf(ERROR, "Unable to return the number of Legendre moments from "
+                 "the Geometry since it contains different numbers of moments: "
+                 "%d and %d", num_moments, iter->second->getNumLegendreMoments());
+  }
+
+  return num_moments;
+}
+
+
+/**
  * @brief Returns the number of Materials in the Geometry.
  * @return the number of Materials
  */

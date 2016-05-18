@@ -291,11 +291,11 @@ void ExpEvaluator::initialize() {
 
 
 /**
- * @brief Computes the G2 exponential term for a optical length and polar angle.
- * @details This method computes the H exponential term from Ferrer [1]
- *          for some optical path length and polar angle. This method
- *          uses either a linear interpolation table (default) or the
- *          exponential intrinsic exp(...) function.
+ * @brief Computes the G2 / (2 * tau_a) exponential term for a optical length and polar angle.
+ * @details This method computes the G2 / (2 * tau_a) exponential term from Ferrer [1]
+ *          for some optical path length and polar angle. Since the G2
+ *          exponential is only needed in precomputed values, it is always
+ *          calculated using the exponential intrinsic function.
  *
  *            [1] R. Ferrer and J. Rhodes III, "A Linear Source Approximation
  *                Scheme for the Method of Characteristics", Nuclear Science and
@@ -309,11 +309,32 @@ FP_PRECISION ExpEvaluator::computeExponentialG2(FP_PRECISION tau, int polar) {
 
   tau = std::max(tau, FP_PRECISION(1.e-10));
 
-  if (tau == 0.0)
-    return 0.0;
-
   FP_PRECISION tau_m = tau * _inv_sin_theta[polar];
   return _inv_sin_theta[polar] / 3.0 - (0.5 / tau + 1.0 / (tau_m * tau))
       * (1.0 + tau_m / 2.0 - (1.0 + 1.0 / tau_m) *
          (1.0 - exp(- tau_m)));
+}
+
+
+/**
+ * @brief Computes the G1 exponential term for a optical length and polar angle.
+ * @details This method computes the G1 exponential term from Ferrer [1]
+ *          for some optical path length and polar angle. Since the G1
+ *          exponential is only needed in precomputed values, it is always
+ *          calculated using the exponential intrinsic function.
+ *
+ *            [1] R. Ferrer and J. Rhodes III, "A Linear Source Approximation
+ *                Scheme for the Method of Characteristics", Nuclear Science and
+ *                Engineering, Volume 182, February 2016.
+ *
+ * @param tau the optical path length (e.g., sigma_t times length)
+ * @param polar the polar angle index
+ * @return the evaluated exponential
+ */
+FP_PRECISION ExpEvaluator::computeExponentialG1(FP_PRECISION tau, int polar) {
+
+  tau = std::max(tau, FP_PRECISION(1.e-8));
+
+  FP_PRECISION tau_m = tau * _inv_sin_theta[polar];
+  return 1.0 + tau_m / 2. - (1. + 1. / tau_m) * (1.0 - exp(- tau_m));
 }

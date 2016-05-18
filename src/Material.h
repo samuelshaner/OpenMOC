@@ -68,11 +68,15 @@ private:
   /** The number of energy groups */
   int _num_groups;
 
+  /** The number of Legendre moments */
+  int _num_moments;
+
   /** An array of the total cross-sections for each energy group */
   FP_PRECISION* _sigma_t;
 
-  /** A 2D array of the scattering cross-section matrix from/into each group */
-  FP_PRECISION* _sigma_s;
+  /** A 3D array of the scattering cross-section matrix from/into each group
+   * and for each Legendre moment (if anisotropic scattering is used) */
+  FP_PRECISION** _sigma_s;
 
   /** An array of the fission cross-sections for each energy group */
   FP_PRECISION* _sigma_f;
@@ -107,14 +111,15 @@ public:
   double getVolume();
   int getNumInstances();
   int getNumEnergyGroups() const;
+  int getNumLegendreMoments() const;
   FP_PRECISION* getSigmaT();
-  FP_PRECISION* getSigmaS();
+  FP_PRECISION* getSigmaS(int moment=0);
   FP_PRECISION* getSigmaF();
   FP_PRECISION* getNuSigmaF();
   FP_PRECISION* getChi();
   FP_PRECISION* getFissionMatrix();
   FP_PRECISION getSigmaTByGroup(int group);
-  FP_PRECISION getSigmaSByGroup(int origin, int destination);
+  FP_PRECISION getSigmaSByGroup(int origin, int destination, int moment=0);
   FP_PRECISION getSigmaFByGroup(int group);
   FP_PRECISION getNuSigmaFByGroup(int group);
   FP_PRECISION getChiByGroup(int group);
@@ -128,7 +133,8 @@ public:
   void incrementVolume(double volume);
   void setNumInstances(int num_instances);
   void incrementNumInstances();
-  void setNumEnergyGroups(const int num_groups);
+  void setNumEnergyGroups(const int num_groups,
+                          const int num_moments=1);
 
   void setSigmaT(double* xs, int num_groups);
   void setSigmaS(double* xs, int num_groups);
@@ -139,7 +145,7 @@ public:
   void setSigmaTByGroup(double xs, int group);
   void setSigmaFByGroup(double xs, int group);
   void setNuSigmaFByGroup(double xs, int group);
-  void setSigmaSByGroup(double xs, int origin, int destination);
+  void setSigmaSByGroup(double xs, int origin, int destination, int moment=0);
   void setChiByGroup(double xs, int group);
 
   void buildFissionMatrix();

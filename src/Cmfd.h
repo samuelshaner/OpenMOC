@@ -91,6 +91,10 @@ private:
   /** Number of energy groups */
   int _num_moc_groups;
 
+  /** Number of Legendre moments */
+  int _num_moments;
+  int _num_harmonics;
+
   /** Number of polar angles */
   int _num_polar;
 
@@ -238,6 +242,7 @@ public:
   void setNumY(int num_y);
   void setNumFSRs(int num_fsrs);
   void setNumMOCGroups(int num_moc_groups);
+  void setNumLegendreMoments(int num_moments);
   void setBoundary(int side, boundaryType boundary);
   void setLatticeStructure(int num_x, int num_y);
   void setFluxUpdateOn(bool flux_update_on);
