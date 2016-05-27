@@ -26,6 +26,20 @@
 
 
 /**
+ * @enum solverMode
+ * @brief The solution mode used by the MOC solver.
+*/
+enum segmentCorrectionOption {
+
+  UNCORRECTED,
+  CORRECTED_FWD,
+  CORRECTED_FWD_BWD,
+  CORRECTED_START,
+  CORRECTED_MIDPOINT,
+};
+
+
+/**
  * @class TrackGenerator TrackGenerator.h "src/TrackGenerator.h"
  * @brief The TrackGenerator is dedicated to generating and storing Tracks
  *        which cyclically wrap across the Geometry.
@@ -68,6 +82,9 @@ private:
 
   /** An array of the azimuthal angle quadrature weights */
   FP_PRECISION* _azim_weights;
+
+  FP_PRECISION** _segment_correction_factors;
+  segmentCorrectionOption _segment_correction_option;
 
   /** A 2D ragged array of Tracks */
   Track** _tracks;
@@ -127,6 +144,8 @@ public:
   Track** getTracks();
   Track** getTracksByParallelGroup();
   FP_PRECISION* getAzimWeights();
+  FP_PRECISION** getSegmentCorrectionFactors();
+  segmentCorrectionOption getSegmentCorrectionOption();
   int getNumThreads();
   FP_PRECISION* getFSRVolumes();
   FP_PRECISION* getFSRLinearExpansionCoeffs(PolarQuad* polar_quad);
@@ -143,13 +162,15 @@ public:
   void setGeometry(Geometry* geometry);
   void setNumThreads(int num_threads);
   void setZCoord(double z_coord);
+  void setSegmentCorrectionOption(segmentCorrectionOption option);
 
   /* Worker functions */
   bool containsTracks();
   void retrieveTrackCoords(double* coords, int num_tracks);
   void retrieveSegmentCoords(double* coords, int num_segments);
   void generateTracks(bool neighbor_cells=false);
-  void correctFSRVolume(int fsr_id, FP_PRECISION fsr_volume);
+  void correctFSRVolume(int fsr_id, FP_PRECISION fsr_volume,
+                        bool by_azim=false);
   void generateFSRCentroids();
   void splitSegments(FP_PRECISION max_optical_length);
   void initializeSegments();

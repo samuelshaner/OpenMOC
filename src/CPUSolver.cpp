@@ -748,6 +748,7 @@ void CPUSolver::tallyScalarFlux(segment* curr_segment, int azim_index,
   int exp_index;
   FP_PRECISION inv_spacing = _exp_evaluator->getInverseTableSpacing();
   FP_PRECISION spacing = _exp_evaluator->getTableSpacing();
+  length *= _segment_correction_factors[fsr_id][azim_index];
 
   /* Set the FSR scalar flux buffer to zero */
   memset(fsr_flux, 0.0, _num_groups * sizeof(FP_PRECISION));

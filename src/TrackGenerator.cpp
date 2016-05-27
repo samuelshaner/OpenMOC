@@ -20,6 +20,8 @@ TrackGenerator::TrackGenerator(Geometry* geometry, const int num_azim,
   _z_coord = 0.0;
   _phi = NULL;
   _FSR_locks = NULL;
+  _segment_correction_factors;
+  _segment_correction_option = UNCORRECTED;
 }
 
 
@@ -46,6 +48,12 @@ TrackGenerator::~TrackGenerator() {
 
   if (_FSR_locks != NULL)
     delete [] _FSR_locks;
+
+  if (_segment_correction_factors != NULL) {
+    for (int r = 0; r < _geometry->getNumFSRs(); r++)
+      delete [] _segment_correction_factors[r];
+    delete [] _segment_correction_factors;
+  }
 }
 
 
@@ -295,8 +303,8 @@ FP_PRECISION* TrackGenerator::getFSRVolumes() {
 
         for (int s=0; s < _tracks[i][j].getNumSegments(); s++) {
           curr_segment = _tracks[i][j].getSegment(s);
-          volume = curr_segment->_length * _azim_weights[azim_index];
           fsr_id = curr_segment->_region_id;
+          volume = curr_segment->_length * _azim_weights[azim_index];
 
           /* Set FSR mutual exclusion lock */
           omp_set_lock(&_FSR_locks[fsr_id]);
@@ -352,7 +360,7 @@ FP_PRECISION* TrackGenerator::getFSRLinearExpansionCoeffs(
 
     int azim_index, fsr_id;
     segment* curr_segment;
-    FP_PRECISION wgt, length;
+    FP_PRECISION wgt, length, scf;
     double phi, sin_phi, cos_phi;
     double X, Y, xc, yc;
     Point* centroid;
@@ -373,27 +381,94 @@ FP_PRECISION* TrackGenerator::getFSRLinearExpansionCoeffs(
           wgt = _azim_weights[azim_index];
           fsr_id = curr_segment->_region_id;
           centroid = _geometry->getFSRCentroid(fsr_id);
+          scf = _segment_correction_factors[fsr_id][azim_index];
+
+          if (_segment_correction_option == CORRECTED_FWD_BWD ||
+              _segment_correction_option == CORRECTED_START) {
+            wgt *= 0.5;
+          }
 
           /* Get the centroid of the segment in the local coordinate system */
-          xc = X - centroid->getX() + length / 2.0 * cos_phi;
-          yc = Y - centroid->getY() + length / 2.0 * sin_phi;
+          if (_segment_correction_option == UNCORRECTED ||
+              _segment_correction_option == CORRECTED_MIDPOINT) {
+            xc = X - centroid->getX() + length / 2.0 * cos_phi;
+            yc = Y - centroid->getY() + length / 2.0 * sin_phi;
+          }
+          else if (_segment_correction_option == CORRECTED_FWD ||
+                   _segment_correction_option == CORRECTED_FWD_BWD ||
+                   _segment_correction_option == CORRECTED_START) {
+            xc = X - centroid->getX() + length * cos_phi / 2.0 * scf;
+            yc = Y - centroid->getY() + length * sin_phi / 2.0 * scf;
+          }
 
           /* Set FSR mutual exclusion lock */
           omp_set_lock(&_FSR_locks[fsr_id]);
 
-          lin_exp_matrix[fsr_id*3    ] += wgt * length *
-              (xc * xc + pow(cos_phi * length, 2.0) / 12.0);
-          lin_exp_matrix[fsr_id*3 + 1] += wgt * length *
-              (yc * yc + pow(sin_phi * length, 2.0) / 12.0);
-          lin_exp_matrix[fsr_id*3 + 2] += wgt * length *
-              (xc * yc + sin_phi * cos_phi * pow(length, 2.0) / 12.0);
+          lin_exp_matrix[fsr_id*3    ] += wgt * length * scf *
+              (xc * xc + pow(cos_phi * length * scf, 2.0) / 12.0);
+          lin_exp_matrix[fsr_id*3 + 1] += wgt * length * scf *
+              (yc * yc + pow(sin_phi * length * scf, 2.0) / 12.0);
+          lin_exp_matrix[fsr_id*3 + 2] += wgt * length * scf *
+              (xc * yc + sin_phi * cos_phi * pow(length * scf, 2.0) / 12.0);
 
           /* Release FSR mutual exclusion lock */
           omp_unset_lock(&_FSR_locks[fsr_id]);
 
           /* Move the segment coordinates forward to the next segment */
-          X += length * cos_phi;
-          Y += length * sin_phi;
+          if (_segment_correction_option == UNCORRECTED ||
+              _segment_correction_option == CORRECTED_MIDPOINT ||
+              _segment_correction_option == CORRECTED_START) {
+            X += length * cos_phi;
+            Y += length * sin_phi;
+          }
+          else if (_segment_correction_option == CORRECTED_FWD ||
+                   _segment_correction_option == CORRECTED_FWD_BWD) {
+            X += length * cos_phi * scf;
+            Y += length * sin_phi * scf;
+          }
+        }
+
+        if (_segment_correction_option == CORRECTED_FWD_BWD ||
+            _segment_correction_option == CORRECTED_START) {
+
+          X = _tracks[i][j].getEnd()->getX();
+          Y = _tracks[i][j].getEnd()->getY();
+
+          for (int s = _tracks[i][j].getNumSegments()-1; s >= 0; s--) {
+            curr_segment = _tracks[i][j].getSegment(s);
+            length = curr_segment->_length;
+            wgt = 0.5 * _azim_weights[azim_index];
+            fsr_id = curr_segment->_region_id;
+            centroid = _geometry->getFSRCentroid(fsr_id);
+            scf = _segment_correction_factors[fsr_id][azim_index];
+
+            /* Get the centroid of the segment in the local coordinate system */
+            xc = X - centroid->getX() - length * cos_phi / 2.0 * scf;
+            yc = Y - centroid->getY() - length * sin_phi / 2.0 * scf;
+
+            /* Set FSR mutual exclusion lock */
+            omp_set_lock(&_FSR_locks[fsr_id]);
+
+            lin_exp_matrix[fsr_id*3    ] += wgt * length * scf *
+                (xc * xc + pow(cos_phi * length * scf, 2.0) / 12.0);
+            lin_exp_matrix[fsr_id*3 + 1] += wgt * length * scf *
+                (yc * yc + pow(sin_phi * length * scf, 2.0) / 12.0);
+            lin_exp_matrix[fsr_id*3 + 2] += wgt * length * scf *
+                (xc * yc + sin_phi * cos_phi * pow(length * scf, 2.0) / 12.0);
+
+            /* Release FSR mutual exclusion lock */
+            omp_unset_lock(&_FSR_locks[fsr_id]);
+
+            /* Move the segment coordinates forward to the next segment */
+            if (_segment_correction_option == CORRECTED_MIDPOINT) {
+              X -= length * cos_phi;
+              Y -= length * sin_phi;
+            }
+            else if (_segment_correction_option == CORRECTED_FWD_BWD) {
+              X -= length * cos_phi * scf;
+              Y -= length * sin_phi * scf;
+            }
+          }
         }
       }
     }
@@ -471,7 +546,7 @@ FP_PRECISION* TrackGenerator::getFSRSourceConstants(PolarQuad* polar_quad,
   {
     int azim_index, fsr_id;
     segment* curr_segment;
-    FP_PRECISION length, tau, wgt, multiple, G2;
+    FP_PRECISION length, tau, wgt, multiple, G2, scf;
     FP_PRECISION* sigma_t;
     double phi, sin_phi, cos_phi, src_constant;
     double X, Y, xc, yc;
@@ -497,10 +572,25 @@ FP_PRECISION* TrackGenerator::getFSRSourceConstants(PolarQuad* polar_quad,
           length = curr_segment->_length;
           wgt = _azim_weights[azim_index];
           centroid = _geometry->getFSRCentroid(fsr_id);
+          scf = _segment_correction_factors[fsr_id][azim_index];
+
+          if (_segment_correction_option == CORRECTED_FWD_BWD ||
+              _segment_correction_option == CORRECTED_START) {
+            wgt *= 0.5;
+          }
 
           /* Get the centroid of the segment in the local coordinate system */
-          xc = X - centroid->getX() + length * cos_phi / 2.0;
-          yc = Y - centroid->getY() + length * sin_phi / 2.0;
+          if (_segment_correction_option == UNCORRECTED ||
+              _segment_correction_option == CORRECTED_MIDPOINT) {
+            xc = X - centroid->getX() + length * cos_phi / 2.0;
+            yc = Y - centroid->getY() + length * sin_phi / 2.0;
+          }
+          else if (_segment_correction_option == CORRECTED_FWD ||
+                   _segment_correction_option == CORRECTED_FWD_BWD ||
+                   _segment_correction_option == CORRECTED_START) {
+            xc = X - centroid->getX() + length * cos_phi / 2.0 * scf;
+            yc = Y - centroid->getY() + length * sin_phi / 2.0 * scf;
+          }
 
           /* Set the FSR src cosntants buffer to zero */
           memset(thread_src_constants, 0.0, num_groups * 3 *
@@ -515,9 +605,9 @@ FP_PRECISION* TrackGenerator::getFSRSourceConstants(PolarQuad* polar_quad,
             thread_src_constants[g*3 + 2] += src_constant * xc * yc;
 
             /* store the tau for this segment and total xs */
-            tau = length * sigma_t[g];
+            tau = length * sigma_t[g] * scf;
 
-            src_constant *= length * length;
+            src_constant *= length * length * scf * scf * scf;
 
             for (int p=0; p < polar_quad->getNumPolarAngles(); p++) {
 
@@ -548,8 +638,92 @@ FP_PRECISION* TrackGenerator::getFSRSourceConstants(PolarQuad* polar_quad,
           /* Release FSR mutual exclusion lock */
           omp_unset_lock(&_FSR_locks[fsr_id]);
 
-          X += length * cos_phi;
-          Y += length * sin_phi;
+          if (_segment_correction_option == UNCORRECTED ||
+              _segment_correction_option == CORRECTED_MIDPOINT ||
+              _segment_correction_option == CORRECTED_START) {
+            X += length * cos_phi;
+            Y += length * sin_phi;
+          }
+          else if (_segment_correction_option == CORRECTED_FWD ||
+                   _segment_correction_option == CORRECTED_FWD_BWD) {
+            X += length * cos_phi * scf;
+            Y += length * sin_phi * scf;
+          }
+        }
+
+        if (_segment_correction_option == CORRECTED_FWD_BWD ||
+            _segment_correction_option == CORRECTED_START) {
+
+          X = _tracks[i][j].getEnd()->getX();
+          Y = _tracks[i][j].getEnd()->getY();
+
+          for (int s=_tracks[i][j].getNumSegments()-1; s >= 0; s--) {
+            curr_segment = _tracks[i][j].getSegment(s);
+            fsr_id = curr_segment->_region_id;
+            sigma_t = curr_segment->_material->getSigmaT();
+            length = curr_segment->_length;
+            wgt = _azim_weights[azim_index] * 0.5;
+            centroid = _geometry->getFSRCentroid(fsr_id);
+            scf = _segment_correction_factors[fsr_id][azim_index];
+
+            xc = X - centroid->getX() - length * cos_phi / 2.0 * scf;
+            yc = Y - centroid->getY() - length * sin_phi / 2.0 * scf;
+
+            /* Set the FSR src cosntants buffer to zero */
+            memset(thread_src_constants, 0.0, num_groups * 3 *
+                   sizeof(FP_PRECISION));
+
+            for (int g=0; g < num_groups; g++) {
+
+              src_constant = wgt * length;
+
+              thread_src_constants[g*3    ] += src_constant * xc * xc;
+              thread_src_constants[g*3 + 1] += src_constant * yc * yc;
+              thread_src_constants[g*3 + 2] += src_constant * xc * yc;
+
+              /* store the tau for this segment and total xs */
+              tau = length * sigma_t[g] * scf;
+
+              src_constant *= length * length * scf * scf * scf;
+
+              for (int p=0; p < polar_quad->getNumPolarAngles(); p++) {
+
+                multiple = polar_quad->getMultiple(p);
+                G2 = exp_eval->computeExponentialG2(tau, p);
+
+                thread_src_constants[g*3] += src_constant * multiple *
+                    cos_phi * cos_phi * G2;
+                thread_src_constants[g*3 + 1] += src_constant * multiple *
+                    sin_phi * sin_phi * G2;
+                thread_src_constants[g*3 + 2] += src_constant * multiple *
+                    sin_phi * cos_phi * G2;
+              }
+            }
+
+            /* Set FSR mutual exclusion lock */
+            omp_set_lock(&_FSR_locks[fsr_id]);
+
+            for (int g=0; g < num_groups; g++) {
+              FSR_src_constants[fsr_id*num_groups*3 + g*3] +=
+                  thread_src_constants[g*3];
+              FSR_src_constants[fsr_id*num_groups*3 + g*3 + 1] +=
+                  thread_src_constants[g*3 + 1];
+              FSR_src_constants[fsr_id*num_groups*3 + g*3 + 2] +=
+                  thread_src_constants[g*3 + 2];
+            }
+
+            /* Release FSR mutual exclusion lock */
+            omp_unset_lock(&_FSR_locks[fsr_id]);
+
+            if (_segment_correction_option == CORRECTED_MIDPOINT) {
+              X -= length * cos_phi;
+              Y -= length * sin_phi;
+            }
+            else if (_segment_correction_option == CORRECTED_FWD_BWD) {
+              X -= length * cos_phi * scf;
+              Y -= length * sin_phi * scf;
+            }
+          }
         }
       }
     }
@@ -633,6 +807,7 @@ FP_PRECISION TrackGenerator::getMaxOpticalLength() {
           length = curr_segment->_length;
           material = curr_segment->_material;
           sigma_t = material->getSigmaT();
+          length *= _segment_correction_factors[curr_segment->_region_id][i];
 
           for (int e=0; e < material->getNumEnergyGroups(); e++)
             max_optical_length = std::max(max_optical_length,
@@ -811,7 +986,7 @@ void TrackGenerator::retrieveSegmentCoords(double* coords, int length_coords) {
   double x0, x1, y0, y1, z;
   double phi;
   segment* segments;
-
+  FP_PRECISION scf, length;
   int counter = 0;
 
   /* Loop over Track segments and populate array with their FSR ID and *
@@ -830,27 +1005,49 @@ void TrackGenerator::retrieveSegmentCoords(double* coords, int length_coords) {
         curr_segment = &segments[s];
 
         coords[counter] = curr_segment->_region_id;
+        scf = _segment_correction_factors[curr_segment->_region_id][i];
+
+        if (_segment_correction_option == CORRECTED_MIDPOINT) {
+          length = curr_segment->_length;
+          x0 -= 0.5 * length * (scf - 1) * cos(phi);
+          y0 -= 0.5 * length * (scf - 1) * sin(phi);
+        }
 
         coords[counter+1] = x0;
         coords[counter+2] = y0;
         coords[counter+3] = z;
 
-        x1 = x0 + cos(phi) * curr_segment->_length;
-        y1 = y0 + sin(phi) * curr_segment->_length;
+        x1 = x0 + cos(phi) * curr_segment->_length * scf;
+        y1 = y0 + sin(phi) * curr_segment->_length * scf;
 
         coords[counter+4] = x1;
         coords[counter+5] = y1;
         coords[counter+6] = z;
 
-        x0 = x1;
-        y0 = y1;
+        if (_segment_correction_option == CORRECTED_MIDPOINT) {
+          length = curr_segment->_length;
+          x1 -= 0.5 * length * (scf - 1) * cos(phi);
+          y1 -= 0.5 * length * (scf - 1) * sin(phi);
+        }
+
+        if (_segment_correction_option == UNCORRECTED ||
+            _segment_correction_option == CORRECTED_FWD ||
+            _segment_correction_option == CORRECTED_MIDPOINT ||
+            _segment_correction_option == CORRECTED_FWD_BWD) {
+          x0 = x1;
+          y0 = y1;
+        }
+        else if (_segment_correction_option == CORRECTED_START) {
+          x0 = x0 + cos(phi) * curr_segment->_length;
+          y0 = y0 + sin(phi) * curr_segment->_length;
+        }
 
         counter += NUM_VALUES_PER_RETRIEVED_SEGMENT;
       }
     }
   }
 
-    return;
+  return;
 }
 
 
@@ -880,6 +1077,12 @@ void TrackGenerator::generateTracks(bool neighbor_cells) {
 
     for (int i = 0; i < _num_azim; i++)
       delete [] _tracks[i];
+
+    if (_segment_correction_factors != NULL) {
+      for (int r = 0; r < _geometry->getNumFSRs(); r++)
+        delete [] _segment_correction_factors[r];
+      delete [] _segment_correction_factors;
+    }
 
     delete [] _tracks;
   }
@@ -1407,6 +1610,7 @@ void TrackGenerator::initializeVolumes() {
   Material* material;
   int num_FSRs = _geometry->getNumFSRs();
   FP_PRECISION* fsr_volumes = getFSRVolumes();
+  _segment_correction_factors = new FP_PRECISION*[num_FSRs];
 
   /* Compute volume and number of instances for each Cell and Material */
   for (int i=0; i < num_FSRs; i++) {
@@ -1417,6 +1621,10 @@ void TrackGenerator::initializeVolumes() {
     material = cell->getFillMaterial();
     material->incrementVolume(fsr_volumes[i]);
     material->incrementNumInstances();
+
+    _segment_correction_factors[i] = new FP_PRECISION[_num_azim];
+    for (int a=0; a < _num_azim; a++)
+      _segment_correction_factors[i][a] = 1.0;
   }
 
   delete [] fsr_volumes;
@@ -2005,7 +2213,11 @@ bool TrackGenerator::readTracksFromFile() {
  * @param fsr_id the ID of the FSR of interest
  * @param fsr_volume the correct FSR volume to use
  */
-void TrackGenerator::correctFSRVolume(int fsr_id, FP_PRECISION fsr_volume) {
+void TrackGenerator::correctFSRVolume(int fsr_id, FP_PRECISION fsr_volume,
+                                      bool by_azim) {
+
+  if (_segment_correction_option == UNCORRECTED)
+    return;
 
   if (!_contains_tracks)
     log_printf(ERROR, "Unable to correct FSR volume since "
@@ -2023,49 +2235,65 @@ void TrackGenerator::correctFSRVolume(int fsr_id, FP_PRECISION fsr_volume) {
   segment* segments;
   segment* curr_segment;
 
-  /* Correct volume separately for each azimuthal angle */
-  for (int i=0; i < _num_azim; i++) {
+  if (by_azim) {
+
+    /* Correct volume separately for each azimuthal angle */
+    for (int i=0; i < _num_azim; i++) {
+
+      /* Initialize volume to zero for this azimuthal angle */
+      volume = 0;
+
+      /* Compute effective track spacing for this azimuthal angle */
+      dx_eff = (_geometry->getWidthX() / _num_x[i]);
+      d_eff = (dx_eff * sin(_tracks[i][0].getPhi()));
+
+      /* Compute the current estimated volume of the FSR for this angle */
+#pragma omp parallel for private(num_segments, segments, curr_segment)  \
+  reduction(+:volume)
+      for (int j=0; j < _num_tracks[i]; j++) {
+        num_segments = _tracks[i][j].getNumSegments();
+        segments = _tracks[i][j].getSegments();
+
+        for (int s=0; s < num_segments; s++) {
+          curr_segment = &segments[s];
+          if (curr_segment->_region_id == fsr_id)
+            volume += curr_segment->_length * d_eff;
+        }
+      }
+
+      log_printf(DEBUG, "Volume correction factor for FSR %d and azim "
+                 "angle %d is %f", fsr_id, i, corr_factor);
+
+      /* Compute correction factor to the volume */
+      _segment_correction_factors[fsr_id][i] = fsr_volume / volume;
+    }
+  }
+  else {
 
     /* Initialize volume to zero for this azimuthal angle */
     volume = 0;
 
-    /* Compute effective track spacing for this azimuthal angle */
-    dx_eff = (_geometry->getWidthX() / _num_x[i]);
-    d_eff = (dx_eff * sin(_tracks[i][0].getPhi()));
+    for (int i=0; i < _num_azim; i++) {
 
-    /* Compute the current estimated volume of the FSR for this angle */
-#pragma omp parallel for private(num_segments, segments, curr_segment) \
-  reduction(+:volume)
-    for (int j=0; j < _num_tracks[i]; j++) {
-      num_segments = _tracks[i][j].getNumSegments();
-      segments = _tracks[i][j].getSegments();
+      /* Compute the current estimated volume of the FSR for this angle */
+      for (int j=0; j < _num_tracks[i]; j++) {
+        num_segments = _tracks[i][j].getNumSegments();
+        segments = _tracks[i][j].getSegments();
 
-      for (int s=0; s < num_segments; s++) {
-        curr_segment = &segments[s];
-        if (curr_segment->_region_id == fsr_id)
-          volume += curr_segment->_length * d_eff;
+        for (int s=0; s < num_segments; s++) {
+          curr_segment = &segments[s];
+          if (curr_segment->_region_id == fsr_id)
+            volume += curr_segment->_length * _azim_weights[i];
+        }
       }
     }
+
+    log_printf(DEBUG, "Volume correction factor for FSR %d is %f",
+               fsr_id, corr_factor);
 
     /* Compute correction factor to the volume */
-    corr_factor = fsr_volume / volume;
-
-    log_printf(DEBUG, "Volume correction factor for FSR %d and azim "
-               "angle %d is %f", fsr_id, i, corr_factor);
-
-    /* Correct the length of each segment which crosses the FSR */
-#pragma omp parallel for private(num_segments, segments, curr_segment)
-    for (int j=0; j < _num_tracks[i]; j++) {
-
-      num_segments = _tracks[i][j].getNumSegments();
-      segments = _tracks[i][j].getSegments();
-
-      for (int s=0; s < num_segments; s++) {
-        curr_segment = &segments[s];
-        if (curr_segment->_region_id == fsr_id)
-          curr_segment->_length *= corr_factor;
-      }
-    }
+    for (int i=0; i < _num_azim; i++)
+      _segment_correction_factors[fsr_id][i] = fsr_volume / volume;
   }
 }
 
@@ -2102,28 +2330,97 @@ void TrackGenerator::generateFSRCentroids() {
       double y = _tracks[i][j].getStart()->getY();
       double z = _tracks[i][j].getStart()->getZ();
       double phi = _tracks[i][j].getPhi();
+      segment* curr_segment;
+      int fsr;
+      double volume;
+      FP_PRECISION wgt_a, s_aki, scf;
 
       for (int s=0; s < num_segments; s++) {
-        segment* curr_segment = &segments[s];
-        int fsr = curr_segment->_region_id;
-        double volume = FSR_volumes[fsr];
-        FP_PRECISION s_aki = curr_segment->_length;
-        FP_PRECISION wgt_a = _azim_weights[i];
+        curr_segment = &segments[s];
+        fsr = curr_segment->_region_id;
+        volume = FSR_volumes[fsr];
+        wgt_a = _azim_weights[i];
+        s_aki = curr_segment->_length;
+        scf = _segment_correction_factors[fsr][i];
+
+        if (_segment_correction_option == CORRECTED_FWD_BWD ||
+            _segment_correction_option == CORRECTED_START)
+          wgt_a *= 0.5;
 
         /* Set FSR mutual exclusion lock */
         omp_set_lock(&_FSR_locks[fsr]);
 
-        centroids[fsr]->setX(centroids[fsr]->getX() + wgt_a * s_aki *
-                             (x + cos(phi) * s_aki / 2.0) / FSR_volumes[fsr]);
-        centroids[fsr]->setY(centroids[fsr]->getY() + wgt_a * s_aki *
-                             (y + sin(phi) * s_aki / 2.0) / FSR_volumes[fsr]);
+        if (_segment_correction_option == UNCORRECTED ||
+            _segment_correction_option == CORRECTED_FWD ||
+            _segment_correction_option == CORRECTED_FWD_BWD ||
+            _segment_correction_option == CORRECTED_START) {
+          centroids[fsr]->setX(centroids[fsr]->getX() + wgt_a * s_aki * scf *
+                               (x + cos(phi) * s_aki * scf / 2.0) / FSR_volumes[fsr]);
+          centroids[fsr]->setY(centroids[fsr]->getY() + wgt_a * s_aki * scf *
+                               (y + sin(phi) * s_aki * scf / 2.0) / FSR_volumes[fsr]);
+        }
+        else if (_segment_correction_option == CORRECTED_MIDPOINT) {
+          centroids[fsr]->setX(centroids[fsr]->getX() + wgt_a * s_aki * scf *
+                               (x + cos(phi) * s_aki / 2.0) / FSR_volumes[fsr]);
+          centroids[fsr]->setY(centroids[fsr]->getY() + wgt_a * s_aki * scf *
+                               (y + sin(phi) * s_aki / 2.0) / FSR_volumes[fsr]);
+        }
+
         centroids[fsr]->setZ(z);
 
         /* Release FSR mutual exclusion lock */
         omp_unset_lock(&_FSR_locks[fsr]);
 
-        x += cos(phi) * s_aki;
-        y += sin(phi) * s_aki;
+        if (_segment_correction_option == UNCORRECTED ||
+            _segment_correction_option == CORRECTED_START ||
+            _segment_correction_option == CORRECTED_MIDPOINT) {
+          x += cos(phi) * s_aki;
+          y += sin(phi) * s_aki;
+        }
+        else if (_segment_correction_option == CORRECTED_FWD ||
+                 _segment_correction_option == CORRECTED_FWD_BWD) {
+          x += cos(phi) * s_aki * scf;
+          y += sin(phi) * s_aki * scf;
+        }
+      }
+
+      if (_segment_correction_option == CORRECTED_FWD_BWD ||
+          _segment_correction_option == CORRECTED_START) {
+
+        x = _tracks[i][j].getEnd()->getX();
+        y = _tracks[i][j].getEnd()->getY();
+        z = _tracks[i][j].getEnd()->getZ();
+        phi = _tracks[i][j].getPhi();
+
+        for (int s=num_segments-1; s >= 0; s--) {
+          curr_segment = &segments[s];
+          fsr = curr_segment->_region_id;
+          volume = FSR_volumes[fsr];
+          wgt_a = _azim_weights[i] * 0.5;
+          s_aki = curr_segment->_length;
+          scf = _segment_correction_factors[fsr][i];
+
+          /* Set FSR mutual exclusion lock */
+          omp_set_lock(&_FSR_locks[fsr]);
+
+          centroids[fsr]->setX(centroids[fsr]->getX() + wgt_a * s_aki * scf *
+                               (x - cos(phi) * s_aki * scf / 2.0) / FSR_volumes[fsr]);
+          centroids[fsr]->setY(centroids[fsr]->getY() + wgt_a * s_aki * scf *
+                               (y - sin(phi) * s_aki * scf / 2.0) / FSR_volumes[fsr]);
+          centroids[fsr]->setZ(z);
+
+          /* Release FSR mutual exclusion lock */
+          omp_unset_lock(&_FSR_locks[fsr]);
+
+          if (_segment_correction_option == CORRECTED_START) {
+            x -= cos(phi) * s_aki;
+            y -= sin(phi) * s_aki;
+          }
+          else if (_segment_correction_option == CORRECTED_FWD_BWD) {
+            x -= cos(phi) * s_aki * scf;
+            y -= sin(phi) * s_aki * scf;
+          }
+        }
       }
     }
   }
@@ -2295,4 +2592,19 @@ double TrackGenerator::getPhi(int azim) {
     return _phi[azim];
   else
     return M_PI + _phi[azim - _num_azim];
+}
+
+
+FP_PRECISION** TrackGenerator::getSegmentCorrectionFactors() {
+  return _segment_correction_factors;
+}
+
+
+segmentCorrectionOption TrackGenerator::getSegmentCorrectionOption() {
+  return _segment_correction_option;
+}
+
+
+void TrackGenerator::setSegmentCorrectionOption(segmentCorrectionOption option) {
+  _segment_correction_option = option;
 }

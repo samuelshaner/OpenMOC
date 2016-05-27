@@ -167,9 +167,10 @@ inline FP_PRECISION ExpEvaluator::computeExponentialF2(int index,
         _exp_table[index + 5] * dt2;
   else {
     int polar = getPolar(index);
-    FP_PRECISION tau_m = getTau(index, dt) * _inv_sin_theta[polar];
+    FP_PRECISION tau_a = getTau(index, dt);
+    FP_PRECISION tau_m = tau_a * _inv_sin_theta[polar];
     FP_PRECISION F1 = 1.0 - exp(- tau_m);
-    return 2 * (tau_m - F1) - tau_m * F1;
+    return 2 * (tau_m - F1) / tau_a - F1 * _inv_sin_theta[polar];
   }
 }
 

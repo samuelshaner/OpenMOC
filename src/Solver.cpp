@@ -593,9 +593,17 @@ void Solver::initializeFSRs() {
   _num_groups = _geometry->getNumEnergyGroups();
   _polar_times_groups = _num_groups * _num_polar;
   _num_materials = _geometry->getNumMaterials();
+  _segment_correction_factors = _track_generator->getSegmentCorrectionFactors();
+  _segment_correction_option = _track_generator->getSegmentCorrectionOption();
 
   /* Get an array of volumes indexed by FSR  */
   _FSR_volumes = _track_generator->getFSRVolumes();
+
+  for (int r=0; r < _num_FSRs; r++) {
+    log_printf(NORMAL, "fsr: %d, volume: %f", r, _FSR_volumes[r]);
+    for (int i=0; i < _num_azim; i++)
+      log_printf(NORMAL, "fsr: %d, azim: %d, scf: %f", r, i, _segment_correction_factors[r][i]);
+  }
 
   /* Generate the FSR centroids */
   _track_generator->generateFSRCentroids();
@@ -1095,6 +1103,13 @@ void Solver::computeEigenvalue(int max_iters, solverMode mode,
 
   _timer->stopTimer();
   _timer->recordSplit("MOC Kernel");
+
+  std::cout << std::setprecision(20) << _k_eff << std::endl;
+
+  for (int r=0; r < _num_FSRs; r++) {
+    for (int g = 0; g < _num_groups; g++)
+      std::cout << std::setprecision(20) << _scalar_flux(r,g) << std::endl;
+  }
 
   if (_num_iterations == max_iters-1)
     log_printf(WARNING, "Unable to converge the source distribution");

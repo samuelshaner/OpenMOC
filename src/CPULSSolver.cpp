@@ -320,6 +320,7 @@ void CPULSSolver::transportSweep() {
       segment* segments;
       FP_PRECISION* track_flux;
       FP_PRECISION length;
+      FP_PRECISION scf;
       double X, Y, x, y;
       Point* centroid;
 
@@ -346,19 +347,34 @@ void CPULSSolver::transportSweep() {
         for (int s=0; s < num_segments; s++) {
           curr_segment = &segments[s];
           length = curr_segment->_length;
+          scf = _segment_correction_factors[curr_segment->_region_id][azim_index];
           centroid = _FSR_centroids[curr_segment->_region_id];
 
           /* Get the starting point of the segment in local coordinates */
           x = X - centroid->getX();
           y = Y - centroid->getY();
 
+          if (_segment_correction_option == CORRECTED_MIDPOINT) {
+              x -= 0.5 * length * (scf - 1) * _cos_phi[azim_index];
+              y -= 0.5 * length * (scf - 1) * _sin_phi[azim_index];
+          }
+
           tallyLSScalarFlux(curr_segment, azim_index, track_flux,
                             thread_fsr_flux, x, y, 1);
           tallyCurrent(curr_segment, azim_index, track_flux, true);
 
           /* Increment the segment starting point to the next segment */
-          X += length * _cos_phi[azim_index];
-          Y += length * _sin_phi[azim_index];
+          if (_segment_correction_option == UNCORRECTED ||
+              _segment_correction_option == CORRECTED_START ||
+              _segment_correction_option == CORRECTED_MIDPOINT) {
+            X += length * _cos_phi[azim_index];
+            Y += length * _sin_phi[azim_index];
+          }
+          else if (_segment_correction_option == CORRECTED_FWD ||
+                   _segment_correction_option == CORRECTED_FWD_BWD) {
+            X += length * _cos_phi[azim_index] * scf;
+            Y += length * _sin_phi[azim_index] * scf;
+          }
         }
 
         /* Transfer boundary angular flux to outgoing Track */
@@ -367,21 +383,41 @@ void CPULSSolver::transportSweep() {
         /* Loop over each Track segment in reverse direction */
         track_flux += _polar_times_groups;
 
+        if (_segment_correction_option == CORRECTED_FWD_BWD) {
+          X = curr_track->getEnd()->getX();
+          Y = curr_track->getEnd()->getY();
+        }
+
         for (int s=num_segments-1; s > -1; s--) {
           curr_segment = &segments[s];
           length = curr_segment->_length;
           centroid = _FSR_centroids[curr_segment->_region_id];
+          scf = _segment_correction_factors[curr_segment->_region_id][azim_index];
 
           /* Get the starting point of the segment in local coordinates */
           x = X - centroid->getX();
           y = Y - centroid->getY();
 
+          if (_segment_correction_option == CORRECTED_MIDPOINT) {
+              x += 0.5 * length * (scf - 1) * _cos_phi[azim_index];
+              y += 0.5 * length * (scf - 1) * _sin_phi[azim_index];
+          }
+
           tallyLSScalarFlux(curr_segment, azim_index, track_flux,
                             thread_fsr_flux, x, y, -1);
           tallyCurrent(curr_segment, azim_index, track_flux, false);
 
-          X -= length * _cos_phi[azim_index];
-          Y -= length * _sin_phi[azim_index];
+          if (_segment_correction_option == UNCORRECTED ||
+              _segment_correction_option == CORRECTED_START ||
+              _segment_correction_option == CORRECTED_MIDPOINT) {
+            X -= length * _cos_phi[azim_index];
+            Y -= length * _sin_phi[azim_index];
+          }
+          else if (_segment_correction_option == CORRECTED_FWD ||
+                   _segment_correction_option == CORRECTED_FWD_BWD) {
+            X -= length * _cos_phi[azim_index] * scf;
+            Y -= length * _sin_phi[azim_index] * scf;
+          }
         }
 
         /* Transfer boundary angular flux to outgoing Track */
@@ -414,20 +450,21 @@ void CPULSSolver::tallyLSScalarFlux(segment* curr_segment, int azim_index,
                                     double x, double y, int fwd) {
 
   int fsr_id = curr_segment->_region_id;
-  FP_PRECISION length = curr_segment->_length;
+  FP_PRECISION length = curr_segment->_length * _segment_correction_factors[fsr_id][azim_index];
   FP_PRECISION* sigma_t = curr_segment->_material->getSigmaT();
   FP_PRECISION delta_psi, exp_F1, exp_F2, exp_H, tau;
   FP_PRECISION src_flat, src_linear, dt, dt2, ax, ay;
   FP_PRECISION polar_wgt_d_psi;
   FP_PRECISION polar_wgt_exp_h;
+  double xc, yc;
   int exp_index;
   int azim_times_polar = azim_index * _num_polar;
 
   /* Compute the segment midpoint */
   double cos_phi = fwd * _cos_phi[azim_index];
   double sin_phi = fwd * _sin_phi[azim_index];
-  double xc = x + 0.5 * length * cos_phi;
-  double yc = y + 0.5 * length * sin_phi;
+  xc = x + 0.5 * length * cos_phi;
+  yc = y + 0.5 * length * sin_phi;
 
   /* Set the FSR scalar flux buffer to zero */
   memset(fsr_flux, 0.0, _num_groups * 3 * sizeof(FP_PRECISION));

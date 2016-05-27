@@ -197,6 +197,9 @@ protected:
    *  without data races between threads */
   int _num_parallel_track_groups;
 
+  FP_PRECISION** _segment_correction_factors;
+  segmentCorrectionOption _segment_correction_option;
+
   void clearTimerSplits();
 
 public:

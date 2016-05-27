@@ -521,6 +521,177 @@ def plot_flat_source_regions(geometry, gridsize=250, xlim=None, ylim=None,
             plt.close(fig)
 
 
+def plot_flat_source_regions_and_segments(track_generator, gridsize=250, xlim=None, ylim=None,
+                                          centroids=False, marker_type='o', marker_size=2,
+                                          get_figure=False, library='matplotlib'):
+    """Plots a color-coded 2D surface plot of the FSRs in the geometry.
+
+    The geometry must be initialized with materials, cells, universes and
+    lattices before being passed into this routine.
+
+    Parameters
+    ----------
+    geometry : openmoc.Geometry
+        An OpenMOC geometry
+    gridsize : Integral, optional
+        The number of grid cells for the plot (250 by default)
+    xlim : 2-tuple of Real, optional
+        The minimim/maximum x-coordinates
+    ylim : 2-tuple of Real, optional
+        The minimim/maximum y-coordinates
+    centroids : bool
+        Whether to plot the FSR centroids (False by default)
+    marker_type : str
+        The marker type to use for FSR centroids ('o' by default)
+    marker_size : Integral
+        The marker size to use for FSR centroids (2 by default)
+    get_figure : bool
+        Whether to return the Matplotlib figure (only if library='matplotlib')
+    library : {'matplotlib', 'pil'}
+        The plotting library to use
+
+    Returns
+    -------
+    fig : matplotlib.Figure or None
+        The Matplotlib figure is returned if get_figure is True
+
+    Examples
+    --------
+    A user may invoke this function from an OpenMOC Python file as follows:
+
+        >>> openmoc.plotter.plot_flat_source_regions(geometry)
+
+    """
+
+    cv.check_type('track_generator', track_generator, openmoc.TrackGenerator)
+    geometry = track_generator.getGeometry()
+    cv.check_type('centroids', centroids, bool)
+    cv.check_type('marker_type', marker_type, basestring)
+    cv.check_value('marker_type', marker_type,
+                   tuple(matplotlib.markers.MarkerStyle().markers.keys()))
+    cv.check_type('marker_size', marker_size, Real)
+    cv.check_greater_than('marker_size', marker_size, 0)
+
+    if geometry.getNumFSRs() == 0:
+        py_printf('ERROR', 'Unable to plot the flat source regions ' +
+                  'since no tracks have been generated.')
+
+    py_printf('NORMAL', 'Plotting the flat source regions...')
+
+    global subdirectory, matplotlib_rcparams
+    directory = openmoc.get_output_directory() + subdirectory
+
+    num_fsrs = geometry.getNumFSRs()
+    fsrs_to_fsrs = np.arange(num_fsrs, dtype=np.int64)
+    fsrs_to_fsrs = _colorize(fsrs_to_fsrs, num_fsrs)
+
+    # Initialize plotting parameters
+    zcoord = geometry.getFSRPoint(0).getZ()
+    plot_params = PlotParams()
+    plot_params.geometry = geometry
+    plot_params.zcoord = zcoord
+    plot_params.gridsize = gridsize
+    plot_params.library = library
+    plot_params.xlim = xlim
+    plot_params.ylim = ylim
+    plot_params.suptitle = 'Flat Source Regions'
+    plot_params.title = 'z = {0}'.format(zcoord)
+    plot_params.filename = 'flat-source-regions-segments-z-{0}'.format(zcoord)
+    plot_params.interpolation = 'nearest'
+    plot_params.vmin = 0
+    plot_params.vmax = num_fsrs
+
+    # Plot a 2D color map of the flat source regions
+    figures = plot_spatial_data(fsrs_to_fsrs, plot_params, get_figure=True)
+    fig = figures[0]
+
+    # Plot centroids on top of 2D flat source region color map
+    if centroids:
+
+        # Populate a NumPy array with the FSR centroid coordinates
+        centroids = np.zeros((num_fsrs, 2), dtype=np.float)
+        for fsr_id in range(num_fsrs):
+            point = geometry.getFSRCentroid(fsr_id)
+            centroids[fsr_id,:] = [point.getX(), point.getY()]
+
+        # Plot centroids on figure using matplotlib
+        if library == 'pil':
+
+            # Retrieve the plot bounds
+            coords = _get_pixel_coords(plot_params)
+            r = marker_size
+
+            # Open a PIL ImageDraw portal on the Image object
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(fig)
+
+            for fsr_id in range(num_fsrs):
+                # Retrieve the pixel coordinates for this centroid
+                x, y = centroids[fsr_id,:]
+
+                # Only plot centroid if it is within the plot bounds
+                if x < coords['bounds'][0] or x > coords['bounds'][1]:
+                    continue
+                elif y < coords['bounds'][2] or y > coords['bounds'][3]:
+                    continue
+
+                # Transform the centroid into pixel coordinates
+                x = int((x-coords['x'][1]) / (coords['x'][1]-coords['x'][0]))
+                y = int((y-coords['y'][1]) / (coords['y'][1]-coords['y'][0]))
+
+                # Draw circle for this centroid on the image
+                draw.ellipse((x-r, y-r, x+r, y+r), fill=(0, 0, 0))
+
+        # Plot centroids on figure using PIL
+        else:
+            plt.scatter(centroids[:,0], centroids[:,1], color='k',
+                        marker=marker_type, s=marker_size)
+
+    # Retrieve data from TrackGenerator
+    vals_per_segment = openmoc.NUM_VALUES_PER_RETRIEVED_SEGMENT
+    num_azim = track_generator.getNumAzim()
+    spacing = track_generator.getTrackSpacing()
+    num_segments = track_generator.getNumSegments()
+    num_fsrs = track_generator.getGeometry().getNumFSRs()
+    coords = \
+        track_generator.retrieveSegmentCoords(num_segments*vals_per_segment)
+
+    # Convert data to NumPy arrays
+    coords = np.array(coords)
+    x = np.zeros(num_segments*2)
+    y = np.zeros(num_segments*2)
+    z = np.zeros(num_segments*2)
+    fsrs = np.zeros(num_segments)
+
+    for i in range(num_segments):
+        fsrs[i] = coords[i*vals_per_segment]
+        x[i*2] = coords[i*vals_per_segment+1]
+        y[i*2] = coords[i*vals_per_segment+2]
+        z[i*2] = coords[i*vals_per_segment+3]
+        x[i*2+1] = coords[i*vals_per_segment+4]
+        y[i*2+1] = coords[i*vals_per_segment+5]
+        z[i*2+1] = coords[i*vals_per_segment+6]
+
+    # Create a color map corresponding to FSR IDs
+    for i in range(num_segments):
+        plt.plot([x[i*2], x[i*2+1]], [y[i*2], y[i*2+1]], 'k')
+        plt.scatter(x[i*2], y[i*2], marker='o', facecolors='none', edgecolors='k')
+        plt.scatter(x[i*2+1], y[i*2+1], marker='D', facecolors='none', edgecolors='k')
+
+    # Return the figure to the user if requested
+    if get_figure:
+        return figures[0]
+    # Set the plot title and save the figure
+    else:
+        plot_filename = directory + plot_params.filename + plot_params.extension
+
+        if library == 'pil':
+            fig.save(plot_filename)
+        else:
+            fig.savefig(plot_filename, bbox_inches='tight')
+            plt.close(fig)
+
+
 def plot_cmfd_cells(geometry, cmfd, gridsize=250, xlim=None, ylim=None,
                     get_figure=False, library='matplotlib'):
     """Plots a color-coded 2D surface plot of the CMFD cells in a geometry.
